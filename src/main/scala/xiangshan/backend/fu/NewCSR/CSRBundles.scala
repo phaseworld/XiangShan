@@ -170,6 +170,13 @@ object CSRBundles {
     val vstart  = ValidIO(Vstart())
   }
 
+  class CuteCommitCSR(implicit p: Parameters) extends Bundle {
+    val tresp     = ValidIO(UInt(6.W))
+    val tcmdbusy   = ValidIO(Bool())
+    val trespdata  = ValidIO(UInt(64.W))
+    val tbadvaddr = ValidIO(UInt(64.W))
+  }
+
   class CSRCustomState(implicit p: Parameters) extends Bundle {
     // Prefetcher
     val pf_ctrl = Output(new PrefetchCtrl)

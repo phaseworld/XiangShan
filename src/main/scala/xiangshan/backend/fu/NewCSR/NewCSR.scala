@@ -8,7 +8,7 @@ import org.chipsalliance.cde.config.Parameters
 import top.{ArgParser, Generator}
 import utility._
 import utils.OptionWrapper
-import xiangshan.backend.fu.NewCSR.CSRBundles.{CSRCustomState, PrivState, RobCommitCSR}
+import xiangshan.backend.fu.NewCSR.CSRBundles.{CSRCustomState, PrivState, RobCommitCSR, CuteCommitCSR}
 import xiangshan.backend.fu.NewCSR.CSRDefines._
 import xiangshan.backend.fu.NewCSR.CSREnumTypeImplicitCast._
 import xiangshan.backend.fu.NewCSR.CSREvents.{CSREvents, DretEventSinkBundle, EventUpdatePrivStateOutput, MNretEventSinkBundle, MretEventSinkBundle, SretEventSinkBundle, TargetPCBundle, TrapEntryDEventSinkBundle, TrapEntryEventInput, TrapEntryHSEventSinkBundle, TrapEntryMEventSinkBundle, TrapEntryMNEventSinkBundle, TrapEntryVSEventSinkBundle}
@@ -155,6 +155,10 @@ class NewCSR(implicit val p: Parameters) extends Module
       val robDeqPtr = Input(new RobPtr)
     })
 
+    val fromCute = Input(new Bundle {
+      val cutecommit = Input(new CuteCommitCSR)
+    })
+
     val fromVecExcpMod = Input(new Bundle {
       val busy = Bool()
     })
@@ -182,6 +186,12 @@ class NewCSR(implicit val p: Parameters) extends Module
         val vtype = UInt(XLEN.W)
         val vlenb = UInt(XLEN.W)
         val off = Bool()
+      }
+      // cute
+      val cuteState = new Bundle {
+        val tcmd = UInt(20.W)
+        val trs1 = UInt(XLEN.W)
+        val trs2 = UInt(XLEN.W)
       }
       // debug
       val debugMode = Bool()
@@ -590,6 +600,16 @@ class NewCSR(implicit val p: Parameters) extends Module
         m.isVirtMode        := V.asUInt.asBool
       case _ =>
     }
+
+    mod match {
+      case m: HasCuteCommitBundle =>
+        m.cuteCommit.tresp := io.fromCute.cutecommit.tresp
+        m.cuteCommit.tcmdbusy := io.fromCute.cutecommit.tcmdbusy
+        m.cuteCommit.trespdata := io.fromCute.cutecommit.trespdata
+        m.cuteCommit.tbadvaddr := io.fromCute.cutecommit.tbadvaddr
+      case _ =>
+    }
+
     mod match {
       case m: TrapEntryDEventSinkBundle =>
         m.trapToD := trapEntryDEvent.out
@@ -1078,6 +1098,9 @@ class NewCSR(implicit val p: Parameters) extends Module
   io.status.vecState.vtype := vtype.rdata.asUInt // Todo: check correct
   io.status.vecState.vlenb := vlenb.rdata.asUInt
   io.status.vecState.off := mstatus.regOut.VS === ContextStatus.Off
+  io.status.cuteState.tcmd := tcmd.rdata.asUInt
+  io.status.cuteState.trs1 := trs1.rdata.asUInt
+  io.status.cuteState.trs2 := trs2.rdata.asUInt
   io.status.interrupt := intrMod.io.out.interruptVec.valid
   io.status.wfiEvent := debugIntr || (mie.rdata.asUInt & mip.rdata.asUInt).orR
   io.status.debugMode := debugMode

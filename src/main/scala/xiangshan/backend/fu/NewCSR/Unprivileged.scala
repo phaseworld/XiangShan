@@ -85,13 +85,13 @@ trait Unprivileged { self: NewCSR with MachineLevel with SupervisorLevel =>
     val wAliasVxsat = IO(Input(new CSRAddrWriteBundle(new CSRBundle {
       val VXSAT = RW(0)
     })))
-    val wAlisaVxrm = IO(Input(new CSRAddrWriteBundle(new CSRBundle {
+    val wAliasVxrm = IO(Input(new CSRAddrWriteBundle(new CSRBundle {
       val VXRM = RW(1, 0)
     })))
     val vxsat = IO(Output(Vxsat()))
     val vxrm  = IO(Output(Vxrm()))
 
-    for (wAlias <- Seq(wAliasVxsat, wAlisaVxrm)) {
+    for (wAlias <- Seq(wAliasVxsat, wAliasVxrm)) {
       for ((name, field) <- wAlias.wdataFields.elements) {
         reg.elements(name).asInstanceOf[CSREnumType].addOtherUpdate(
           wAlias.wen && field.asInstanceOf[CSREnumType].isLegal,
@@ -128,6 +128,74 @@ trait Unprivileged { self: NewCSR with MachineLevel with SupervisorLevel =>
     val VLENB = VlenbField(63, 0).withReset(VlenbField.init)
   }))
     .setAddr(CSRs.vlenb)
+
+  // CUTE
+  val tcmd = Module(new CSRModule("Tcmd", new CSRBundle {
+    val tBusy = RW(0).withReset(0.U)
+    val tFunct = RW(7, 1)
+    val tRd = RW(12, 8)
+    val tOpcode = RW(19, 13)
+  }) with HasCuteCommitBundle {
+
+    val cmdBusy = IO(Output(Bool()))
+    val cmdFunct = IO(Output(UInt(7.W)))
+    val cmdRd = IO(Output(UInt(5.W)))
+    val cmdOpcode = IO(Output(UInt(7.W)))
+
+    // write connection
+    reconnectReg()
+
+    when (wen) {
+      reg := this.w.wdata
+    }.elsewhen (cuteCommit.tcmdbusy.valid) {
+      reg.tBusy := cuteCommit.tcmdbusy.bits
+    }.otherwise {
+      reg := reg
+    }
+
+    // read connection
+    cmdBusy := reg.tBusy
+    cmdFunct := reg.tFunct
+    cmdRd := reg.tRd
+    cmdOpcode := reg.tOpcode
+
+  }).setAddr(CSRs.tcmd)
+
+  val tresp = Module(new CSRModule("Tresp", new CSRBundle {
+    val resp_valid = RO(0).withReset(0.U)
+    val resp_rd = RO(5, 1)
+  }) with HasCuteCommitBundle {
+
+    when(cuteCommit.tresp.valid) {
+      reg := cuteCommit.tresp.bits
+    }
+  }).setAddr(CSRs.tresp)
+
+  val trespdata = Module(new CSRModule("Trespdata", new CSRBundle {
+    val data = RO(63, 0)
+  }) with HasCuteCommitBundle {
+    when (cuteCommit.trespdata.valid) {
+      reg := cuteCommit.trespdata.bits
+    }
+  }).setAddr(CSRs.trespdata)
+
+  val tbadvaddr = Module(new CSRModule("Tbadvaddr", new CSRBundle {
+    val badvaddr = RO(63, 0)
+  }) with HasCuteCommitBundle {
+    when(cuteCommit.tbadvaddr.valid) {
+      reg := cuteCommit.tbadvaddr.bits
+    }
+  }).setAddr(CSRs.tbadvaddr)
+
+  val trs1 = Module(new CSRModule("Trs1", new CSRBundle {
+    val rs1 = RW(63, 0)
+  }))
+    .setAddr(CSRs.trs1)
+
+  val trs2 = Module(new CSRModule("Trs2", new CSRBundle {
+    val rs2 = RW(63, 0)
+    }))
+    .setAddr(CSRs.trs2)
 
   val cycle = Module(new CSRModule("cycle", new CSRBundle {
     val cycle = RO(63, 0)
@@ -198,11 +266,17 @@ trait Unprivileged { self: NewCSR with MachineLevel with SupervisorLevel =>
     CSRs.fcsr   -> (fcsr.w            -> fcsr.rdata),
     CSRs.vstart -> (vstart.w          -> vstart.rdata),
     CSRs.vxsat  -> (vcsr.wAliasVxsat  -> vcsr.vxsat),
-    CSRs.vxrm   -> (vcsr.wAlisaVxrm   -> vcsr.vxrm),
+    CSRs.vxrm   -> (vcsr.wAliasVxrm   -> vcsr.vxrm),
     CSRs.vcsr   -> (vcsr.w            -> vcsr.rdata),
     CSRs.vl     -> (vl.w              -> vl.rdata),
     CSRs.vtype  -> (vtype.w           -> vtype.rdata),
     CSRs.vlenb  -> (vlenb.w           -> vlenb.rdata),
+    CSRs.tcmd  -> (tcmd.w             -> tcmd.rdata),
+    CSRs.tresp -> (tresp.w            -> tresp.rdata),
+    CSRs.trespdata -> (trespdata.w    -> trespdata.rdata),
+    CSRs.tbadvaddr -> (tbadvaddr.w -> tbadvaddr.rdata),
+    CSRs.trs1   -> (trs1.w            -> trs1.rdata),
+    CSRs.trs2   -> (trs2.w            -> trs2.rdata),
     CSRs.cycle  -> (cycle.w           -> cycle.rdata),
     CSRs.time   -> (time.w            -> time.rdata),
     CSRs.instret -> (instret.w        -> instret.rdata),
@@ -215,6 +289,12 @@ trait Unprivileged { self: NewCSR with MachineLevel with SupervisorLevel =>
     vl,
     vtype,
     vlenb,
+    tcmd,
+    tresp,
+    trespdata,
+    tbadvaddr,
+    trs1,
+    trs2,
     cycle,
     time,
     instret,
@@ -231,6 +311,12 @@ trait Unprivileged { self: NewCSR with MachineLevel with SupervisorLevel =>
     CSRs.vl      -> vl.rdata.asUInt,
     CSRs.vtype   -> vtype.rdata.asUInt,
     CSRs.vlenb   -> vlenb.rdata.asUInt,
+    CSRs.tcmd   -> tcmd.rdata,
+    CSRs.tresp  -> tresp.rdata,
+    CSRs.trespdata -> trespdata.rdata.asUInt,
+    CSRs.tbadvaddr -> tbadvaddr.rdata.asUInt,
+    CSRs.trs1    -> trs1.rdata.asUInt,
+    CSRs.trs2    -> trs2.rdata.asUInt,
     CSRs.cycle   -> cycle.rdata,
     CSRs.time    -> time.rdata,
     CSRs.instret -> instret.rdata,

@@ -55,6 +55,17 @@ class VpuCsrIO(implicit p: Parameters) extends XSBundle {
   val dirty_vs = Output(Bool())
 }
 
+class CuteCsrIO(implicit p: Parameters) extends XSBundle {
+  val tcmd = Input(UInt(20.W))
+  val trs1 = Input(UInt(XLEN.W))
+  val trs2 = Input(UInt(XLEN.W))
+
+  val set_tresp = Output(Valid(UInt(6.W)))
+  val set_trespdata = Output(Valid(UInt(XLEN.W)))
+  val set_tbadvaddr = Output(Valid(UInt(XLEN.W)))
+
+}
+
 
 class PerfCounterIO(implicit p: Parameters) extends XSBundle {
   val perfEventsFrontend  = Vec(numCSRPCntFrontend, new PerfEvent)
@@ -92,6 +103,8 @@ class CSRFileIO(implicit p: Parameters) extends XSBundle {
   val fpu = Flipped(new FpuCsrIO)
   // to VPU
   val vpu = Flipped(new VpuCsrIO)
+  // to CUTE
+  val cute = Flipped(new CuteCsrIO)
   // from rob
   val exception = Flipped(ValidIO(new ExceptionInfo))
   val robDeqPtr = Input(new RobPtr)

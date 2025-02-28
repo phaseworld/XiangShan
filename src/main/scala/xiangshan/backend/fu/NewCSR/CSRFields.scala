@@ -93,7 +93,7 @@ case class RefRWType(
 }
 
 object CSRFunc {
-  type CSRWfnType = (UInt, UInt, Seq[Data]) => UInt
+  type CSRWfnType = (UInt, UInt, Seq[Data]) => UInt // write function
 
   def wNoFilter: CSRWfnType =
     (newV: UInt, oldV: UInt, _: Seq[Data]) => newV
@@ -106,7 +106,7 @@ object CSRFunc {
   def wNoEffect: CSRWfnType =
     (_: UInt, oldV: UInt, _: Seq[Data]) => { oldV }
 
-  type CSRRfnType = (UInt, Seq[Data]) => UInt
+  type CSRRfnType = (UInt, Seq[Data]) => UInt // read function
 
   def rNoFilter: CSRRfnType = null
 
@@ -119,8 +119,8 @@ object CSRFunc {
 }
 
 class CSREnumType(
-  val msb: Int,
-  val lsb: Int,
+  val msb: Int, // the most significant bit
+  val lsb: Int, // the least significant bit
 )(
   var rwType: CSRRWType,
   var init: Data = null

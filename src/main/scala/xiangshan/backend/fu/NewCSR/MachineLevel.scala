@@ -747,6 +747,10 @@ trait HasRobCommitBundle { self: CSRModule[_] =>
   val isVirtMode = IO(Input(Bool()))
 }
 
+trait HasCuteCommitBundle { self: CSRModule[_] =>
+  val cuteCommit = IO(Input(new CuteCommitCSR))
+}
+
 trait HasMachineEnvBundle { self: CSRModule[_] =>
   val menvcfg = IO(Input(new MEnvCfg))
 }

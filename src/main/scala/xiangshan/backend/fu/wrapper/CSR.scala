@@ -34,6 +34,10 @@ class CSR(cfg: FuConfig)(implicit p: Parameters) extends FuncUnit(cfg)
   val setVxsat = csrIn.vpu.set_vxsat
   val vlFromPreg = csrIn.vpu.vl
 
+  val set_tresp = csrIn.cute.set_tresp
+  val set_trespdata = csrIn.cute.set_trespdata
+  val set_tbadvaddr = csrIn.cute.set_tbadvaddr
+
   val flushPipe = Wire(Bool())
   val flush = io.flush.valid
 
@@ -158,6 +162,10 @@ class CSR(cfg: FuConfig)(implicit p: Parameters) extends FuncUnit(cfg)
   csrMod.io.fromRob.commit.instNum.bits  := csrIn.perf.retiredInstr
 
   csrMod.io.fromRob.robDeqPtr := csrIn.robDeqPtr
+
+  csrMod.io.fromCute.cutecommit.tresp := set_tresp
+  csrMod.io.fromCute.cutecommit.trespdata := set_trespdata
+  csrMod.io.fromCute.cutecommit.tbadvaddr := set_tbadvaddr
 
   csrMod.io.fromVecExcpMod.busy := io.csrin.get.fromVecExcpMod.busy
 
@@ -309,6 +317,9 @@ class CSR(cfg: FuConfig)(implicit p: Parameters) extends FuncUnit(cfg)
   csrOut.fpu.frm    := csrMod.io.status.fpState.frm.asUInt
   csrOut.vpu.vstart := csrMod.io.status.vecState.vstart.asUInt
   csrOut.vpu.vxrm   := csrMod.io.status.vecState.vxrm.asUInt
+  csrOut.cute.tcmd := csrMod.io.status.cuteState.tcmd.asUInt
+  csrOut.cute.trs1  := csrMod.io.status.cuteState.trs1.asUInt
+  csrOut.cute.trs2  := csrMod.io.status.cuteState.trs2.asUInt
 
   csrOut.isXRet := isXRet
 
