@@ -1,5 +1,5 @@
 
-package xiangshan.backend.cute
+package xiangshan.cute
 
 import chisel3._
 import chisel3.util._
@@ -113,6 +113,7 @@ class ADataController(implicit p: Parameters) extends Module with HWParameters{
 
   //统计读数请求次数
   val AVectorCount = RegInit(0.U(32.W))//当前计算任务实际上的迭代次数
+  val ARequestVectorCount = RegInit(0.U(32.W))//当前计算任务实际上的迭代次数
 
   val ScarchPadRequestBankAddr = io.FromScarchPadIO.BankAddr  //往ScarchPad请求数据的地址
   ScarchPadRequestBankAddr.bits := 0.U.asTypeOf(ScarchPadRequestBankAddr.bits)        //全部初始化为0
@@ -130,6 +131,7 @@ class ADataController(implicit p: Parameters) extends Module with HWParameters{
       N_Iterator := 0.U
       K_Iterator := 0.U
       AVectorCount := 0.U
+      ARequestVectorCount := 0.U
       ScarchPadDataHoldReg := 0.U
       ScarchPadDataHoldValid := false.B
       //阶段1，初始化完成，开始供数任务
@@ -150,9 +152,10 @@ class ADataController(implicit p: Parameters) extends Module with HWParameters{
       //只要ComputeGo有效，就表示一定会有一个数据被消耗，我们可以继续取数
       //但我们有一个周期的读数延迟，所以如果当前拍不能再继续计算，则我们取得数会在NACK，我们将NACK的数据保存在holdreg中
       //只要等Computgo有效，就可以继续取数，我们会将NACK的数据输出给TE
-      when(io.ComputeGo && AVectorCount < Max_Caculate_Iter){
+      when(io.ComputeGo && ARequestVectorCount < Max_Caculate_Iter){
         //计算取数地址
         ScarchPadRequestBankAddr.valid := true.B
+        ARequestVectorCount := ARequestVectorCount + 1.U
         K_Iterator := K_Iterator + 1.U
         when(K_Iterator === K_IteratorMax - 1.U){
           K_Iterator := 0.U
@@ -187,7 +190,7 @@ class ADataController(implicit p: Parameters) extends Module with HWParameters{
         //输出AVectorCount，VectorA的信息
         if (YJPADCDebugEnable)
         {
-          printf("[ADataController<%d>]ADataController: AVectorCount is %d\n", AVectorCount)
+          printf("[ADataController<%d>]ADataController: AVectorCount is %d,AVector = %d \n",io.DebugInfo.DebugTimeStampe, AVectorCount,io.VectorA.bits)
         }
       }.elsewhen(io.VectorA.valid && !io.VectorA.ready && !io.ComputeGo && ScarchPadData.valid){
         //如果数据没有被消耗，那么我们就要保存ScarchPad的数据

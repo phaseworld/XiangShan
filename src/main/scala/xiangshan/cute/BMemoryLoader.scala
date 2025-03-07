@@ -1,4 +1,5 @@
-package xiangshan.backend.cute
+
+package xiangshan.cute
 
 import chisel3._
 import chisel3.util._
@@ -40,7 +41,8 @@ class BMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
   io.ToScarchPadIO.Data.valid := false.B
   io.ToScarchPadIO.Data.bits := 0.U
   io.LocalMMUIO.Request.valid := false.B
-  io.LocalMMUIO.Request.bits := DontCare
+  io.LocalMMUIO.Request.bits := 0.U.asTypeOf(io.LocalMMUIO.Request.bits)
+  io.LocalMMUIO.Response.ready := false.B
   io.ConfigInfo.MicroTaskEndValid := false.B
   io.ConfigInfo.MicroTaskReady := false.B
 
@@ -51,13 +53,12 @@ class BMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
 
   val ConfigInfo = io.ConfigInfo
 
-  // val ApplicationTensor_M = RegInit(0.U(ApplicationMaxTensorSizeBitSize.W))
-  val ScaratchpadTensor_N = RegInit(0.U(ApplicationMaxTensorSizeBitSize.W))
-  val ScaratchpadTensor_K = RegInit(0.U(ApplicationMaxTensorSizeBitSize.W))
+  val ScaratchpadTensor_N = RegInit(0.U(ScaratchpadMaxTensorDimBitSize.W))
+  val ScaratchpadTensor_K = RegInit(0.U(ScaratchpadMaxTensorDimBitSize.W))
 
   val Tensor_B_BaseVaddr = RegInit(0.U(MMUAddrWidth.W))
 
-  val ApplicationTensor_B_Stride_N = RegInit(0.U(ApplicationMaxTensorSizeBitSize.W))
+  val ApplicationTensor_B_Stride_N = RegInit(0.U(MMUAddrWidth.W))
 
 
   //任务状态机
@@ -89,6 +90,13 @@ class BMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
       Tensor_Block_BaseAddr := io.ConfigInfo.ApplicationTensor_B.BlockTensor_B_BaseVaddr //这个是关键
       Conherent := io.ConfigInfo.Conherent
       ApplicationTensor_B_Stride_N := io.ConfigInfo.ApplicationTensor_B.ApplicationTensor_B_Stride_N //下一个N，需要增加多少地址偏移量
+      if(YJPBMLDebugEnable)
+      {
+        printf("[BML<%d>]BMemoryLoader Task Start\n",io.DebugInfo.DebugTimeStampe)
+        printf("[BML<%d>]ScaratchpadTensor_N:%d,ScaratchpadTensor_K:%d\n",io.DebugInfo.DebugTimeStampe,io.ConfigInfo.ScaratchpadTensor_N,io.ConfigInfo.ScaratchpadTensor_K)
+        printf("[BML<%d>]Tensor_B_BaseVaddr:%x,Tensor_Block_BaseAddr:%x\n",io.DebugInfo.DebugTimeStampe,io.ConfigInfo.ApplicationTensor_B.ApplicationTensor_B_BaseVaddr,io.ConfigInfo.ApplicationTensor_B.BlockTensor_B_BaseVaddr)
+        printf("[BML<%d>]ApplicationTensor_B_Stride_N:%x\n",io.DebugInfo.DebugTimeStampe,io.ConfigInfo.ApplicationTensor_B.ApplicationTensor_B_Stride_N)
+      }
     }
   }
 
@@ -180,9 +188,9 @@ class BMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
       if (YJPBMLDebugEnable)
       {
         //输出id和request的信息
-        printf("[BML]sourceId:%d,ScratchpadBankId:%d,ScratchpadAddr:%d\n",sourceId.bits,TableItem.ScratchpadBankId,TableItem.ScratchpadAddr)
+        printf("[BML<%d>]sourceId:%d,ScratchpadBankId:%d,ScratchpadAddr:%d\n",io.DebugInfo.DebugTimeStampe,sourceId.bits,TableItem.ScratchpadBankId,TableItem.ScratchpadAddr)
         //输出这次request的信息
-        printf("[BML]RequestVirtualAddr:%x,RequestConherent:%d,RequestSourceID:%d,RequestType_isWrite:%d\n",Request.bits.RequestVirtualAddr,Request.bits.RequestConherent,Request.bits.RequestSourceID,Request.bits.RequestType_isWrite)
+        printf("[BML<%d>]RequestVirtualAddr:%x,RequestConherent:%d,RequestSourceID:%d,RequestType_isWrite:%d\n",io.DebugInfo.DebugTimeStampe,Request.bits.RequestVirtualAddr,Request.bits.RequestConherent,Request.bits.RequestSourceID,Request.bits.RequestType_isWrite)
       }
       when(CurrentLoaded_BlockTensor_N < MaxBlockTensor_N_Index){
         when(CurrentLoaded_BlockTensor_K < MaxBlockTensor_K_Index - 1.U){
@@ -197,6 +205,7 @@ class BMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
     //接受访存的返回值
     //一个cam来存储访存请求的source_id对应的Scarchpad的地址和bank号
     //根据response的sourceid，找到对应的Scarchpad的地址和bank号，回填数据
+    io.LocalMMUIO.Response.ready := true.B
     when(io.LocalMMUIO.Response.valid){
       //Trick注意这个设计，是doublebuffer的，AB只能是doublebuffer，回数一定是不会堵的，而且我们有时间对数据进行压缩解压缩～
       //如果要做release设计，要么数据位宽翻倍，腾出周期来使得有空泡能给写任务进行，要么就是数据位宽不变，将读写端口变成独立的读和独立的写端口
@@ -225,9 +234,9 @@ class BMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
       if (YJPBMLDebugEnable)
       {
         //输出这次response的信息
-        printf("[BML]ResponseData:%x,ScratchpadBankId:%d,ScratchpadAddr:%d\n",ResponseData,ScratchpadBankId,ScratchpadAddr)
+        printf("[BML<%d>]ResponseData:%x,ScratchpadBankId:%d,ScratchpadAddr:%d\n",io.DebugInfo.DebugTimeStampe,ResponseData,ScratchpadBankId,ScratchpadAddr)
         //输出这次的totalloadsize
-        printf("[BML]TotalLoadSize:%d\n",TotalLoadSize)
+        printf("[BML<%d>]TotalLoadSize:%d\n",io.DebugInfo.DebugTimeStampe,TotalLoadSize)
       }
     }
 
@@ -238,7 +247,7 @@ class BMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
       state := s_idle
       if(YJPBMLDebugEnable)
       {
-        printf("[BML]BMemoryLoader Task End\n")
+        printf("[BML<%d>]BMemoryLoader Task End\n",io.DebugInfo.DebugTimeStampe)
       }
     }
   }.otherwise{

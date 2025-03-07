@@ -26,11 +26,12 @@ import freechips.rocketchip.tilelink._
 import freechips.rocketchip.amba.axi4._
 import device.MsiInfoBundle
 import system.HasSoCParameter
-import top.{BusPerfMonitor, ArgParser, Generator}
-import utility.{DelayN, ResetGen, TLClientsMerger, TLEdgeBuffer, TLLogger, Constantin, ChiselDB, FileRegisters}
+import top.{ArgParser, BusPerfMonitor, Generator}
+import utility.{ChiselDB, Constantin, DelayN, FileRegisters, ResetGen, TLClientsMerger, TLEdgeBuffer, TLLogger}
 import coupledL2.EnableCHI
 import coupledL2.tl2chi.PortIO
 import xiangshan.backend.trace.TraceCoreInterface
+import xiangshan.cute.XS2CUTE
 
 class XSTile()(implicit p: Parameters) extends LazyModule
   with HasXSParameter
@@ -58,6 +59,7 @@ class XSTile()(implicit p: Parameters) extends LazyModule
   memBlock.debug_int_sink := debug_int_node
   memBlock.nmi_int_sink := nmi_int_node
 
+
   // =========== Components' Connection ============
   // L1 to l1_xbar
   coreParams.dcacheParametersOpt.map { _ =>
@@ -69,6 +71,8 @@ class XSTile()(implicit p: Parameters) extends LazyModule
   if (!coreParams.softPTW) {
     l2top.inner.misc_l2_pmu := l2top.inner.ptw_logger := l2top.inner.ptw_to_l2_buffer.node := memBlock.ptw_to_l2_buffer.node
   }
+
+  l2top.inner.misc_l2_pmu := l2top.inner.cute_logger := core.cute.LLCMemPort.node
 
   // L2 Prefetch
   l2top.inner.l2cache match {

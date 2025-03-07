@@ -32,8 +32,10 @@ import xiangshan.backend.fu.PMPRespBundle
 import xiangshan.backend.trace.TraceCoreInterface
 import xiangshan.cache.mmu._
 import xiangshan.frontend._
+
 import scala.collection.mutable.ListBuffer
 import xiangshan.cache.mmu.TlbRequestIO
+import xiangshan.cute.XS2CUTE
 
 abstract class XSModule(implicit val p: Parameters) extends Module
   with HasXSParameter
@@ -61,6 +63,7 @@ abstract class XSCoreBase()(implicit p: config.Parameters) extends LazyModule
   val frontend = LazyModule(new Frontend())
   val csrOut = BundleBridgeSource(Some(() => new DistributedCSRIO()))
   val backend = LazyModule(new Backend(backendParams))
+  val cute = LazyModule(new XS2CUTE())
 
   val memBlock = LazyModule(new MemBlock)
 
@@ -120,6 +123,7 @@ class XSCoreImp(outer: XSCoreBase) extends LazyModuleImp(outer)
   val frontend = outer.frontend.module
   val backend = outer.backend.module
   val memBlock = outer.memBlock.module
+  val cute = outer.cute.module
 
   frontend.io.hartId := memBlock.io.inner_hartId
   frontend.io.reset_vector := memBlock.io.inner_reset_vector
@@ -252,6 +256,8 @@ class XSCoreImp(outer: XSCoreBase) extends LazyModuleImp(outer)
   backend.io.debugTopDown.fromCore.l3MissMatch := io.debugTopDown.l3MissMatch
   backend.io.debugTopDown.fromCore.fromMem := memBlock.io.debugTopDown.toCore
   memBlock.io.debugRolling := backend.io.debugRolling
+
+  cute.io.csr <> backend.io.cute
 
   io.cpu_halt := memBlock.io.outer_cpu_halt
   io.l2_flush_en := memBlock.io.outer_l2_flush_en

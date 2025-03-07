@@ -37,6 +37,7 @@ class CSR(cfg: FuConfig)(implicit p: Parameters) extends FuncUnit(cfg)
   val set_tresp = csrIn.cute.set_tresp
   val set_trespdata = csrIn.cute.set_trespdata
   val set_tbadvaddr = csrIn.cute.set_tbadvaddr
+  val set_tcmdbusy = csrIn.cute.set_tcmdbusy
 
   val flushPipe = Wire(Bool())
   val flush = io.flush.valid
@@ -166,6 +167,7 @@ class CSR(cfg: FuConfig)(implicit p: Parameters) extends FuncUnit(cfg)
   csrMod.io.fromCute.cutecommit.tresp := set_tresp
   csrMod.io.fromCute.cutecommit.trespdata := set_trespdata
   csrMod.io.fromCute.cutecommit.tbadvaddr := set_tbadvaddr
+  csrMod.io.fromCute.cutecommit.tcmdbusy := set_tcmdbusy
 
   csrMod.io.fromVecExcpMod.busy := io.csrin.get.fromVecExcpMod.busy
 

@@ -1,7 +1,11 @@
-package xiangshan.backend.cute
+
+// package boom.exu.ygjk
+package xiangshan.cute
 
 import chisel3._
 import chisel3.util._
+import xiangshan.cache.mmu.HasTlbConst
+import xiangshan.{XSBundle, XSModule}
 //import boom.exu.ygjk._
 import org.chipsalliance.cde.config._
 //import boom.common._
@@ -16,44 +20,44 @@ trait LocalTLBParameters{
   //加速器设计范式的探索～！～！～！～！
 }
 
-class MMUConfigIO(implicit p: Parameters) extends BoomBundle{
+class MMUConfigIO(implicit p: Parameters) extends XSBundle with HasTlbConst{
   val useVM_v = Input(Bool())
   val useVM = Input(Bool())
   val refill_v = Input(Bool())
-  val refillVaddr = Input(UInt(vpnBits.W))
-  val refillPaddr = Input(UInt(ppnBits.W))
+  val refillVaddr = Input(UInt(vpnLen.W))
+  val refillPaddr = Input(UInt(ppnLen.W))
 }
 
-class LocalTLBReq(implicit p: Parameters) extends BoomBundle{
-  val vaddr0 = Input(UInt(vaddrBits.W))
+class LocalTLBReq(implicit p: Parameters) extends XSBundle{
+  val vaddr0 = Input(UInt(VAddrBits.W))
   val vaddr0_v = Input(Bool())
-  val vaddr1 = Input(UInt(vaddrBits.W))
+  val vaddr1 = Input(UInt(VAddrBits.W))
   val vaddr1_v = Input(Bool())
 }
 
-class LocalTLBResp(implicit p: Parameters) extends BoomBundle{
-  val paddr0 = Output(UInt(paddrBits.W))
-  val paddr1 = Output(UInt(paddrBits.W))
+class LocalTLBResp(implicit p: Parameters) extends XSBundle{
+  val paddr0 = Output(UInt(PAddrBits.W))
+  val paddr1 = Output(UInt(PAddrBits.W))
   val paddr0_v = Output(Bool())
   val paddr1_v = Output(Bool())
   val miss = Output(Bool())
-  val missAddr = Output(UInt(vaddrBits.W))
+  val missAddr = Output(UInt(VAddrBits.W))
 
 }
 
-class LocalTLBIO(implicit p: Parameters) extends BoomBundle{
+class LocalTLBIO(implicit p: Parameters) extends XSBundle{
   val config = new MMUConfigIO
   val req  = new LocalTLBReq
   val resp = new LocalTLBResp
-  val paddr0 = Output(UInt(corePAddrBits.W))
-  val paddr1 = Output(UInt(corePAddrBits.W))
+  val paddr0 = Output(UInt(PAddrBits.W))
+  val paddr1 = Output(UInt(PAddrBits.W))
 }
 
-class LocalTLB(implicit p: Parameters) extends BoomModule with LocalTLBParameters{
+class LocalTLB(implicit p: Parameters) extends XSModule with LocalTLBParameters with HasTlbConst{
   val io = IO(new LocalTLBIO)
 
-  val VTable = RegInit(VecInit(Seq.fill(entry)(0.U(vaddrBits.W))))
-  val PTable = RegInit(VecInit(Seq.fill(entry)(0.U(paddrBits.W))))
+  val VTable = RegInit(VecInit(Seq.fill(entry)(0.U(VAddrBits.W))))
+  val PTable = RegInit(VecInit(Seq.fill(entry)(0.U(PAddrBits.W))))
   val VMusing = RegInit(false.B)
 
   io.paddr0 := PTable(0)
@@ -62,21 +66,21 @@ class LocalTLB(implicit p: Parameters) extends BoomModule with LocalTLBParameter
 
   //vaddr -> paddr
   //默认通路
-  // println("[LocalTLB] paddrBits: " + paddrBits)
-  io.resp.paddr0 := io.req.vaddr0(paddrBits - 1 , 0)
-  io.resp.paddr1 := io.req.vaddr1(paddrBits - 1 , 0)
+  // println("[LocalTLB] PAddrBits: " + PAddrBits)
+  io.resp.paddr0 := io.req.vaddr0(PAddrBits - 1 , 0)
+  io.resp.paddr1 := io.req.vaddr1(PAddrBits - 1 , 0)
 
   val hit0 = Wire(Vec(entry,Bool()))
   val hit1 = Wire(Vec(entry,Bool()))
   for(i <- 0 until entry){
-    hit0(i) := (io.req.vaddr0(vaddrBits-1, pgIdxBits) === VTable(i)) & io.req.vaddr0_v
-    when((io.req.vaddr0(vaddrBits-1, pgIdxBits) === VTable(i)) & io.req.vaddr0_v & VMusing){
-      io.resp.paddr0 := Cat(PTable(i)(19,0),io.req.vaddr0(pgIdxBits - 1 , 0))
+    hit0(i) := (io.req.vaddr0(VAddrBits-1, offLen) === VTable(i)) & io.req.vaddr0_v
+    when((io.req.vaddr0(VAddrBits-1, offLen) === VTable(i)) & io.req.vaddr0_v & VMusing){
+      io.resp.paddr0 := Cat(PTable(i)(19,0),io.req.vaddr0(offLen - 1 , 0))
     }
 
-    hit1(i) := (io.req.vaddr1(vaddrBits-1, pgIdxBits) === VTable(i)) & io.req.vaddr1_v
-    when((io.req.vaddr1(vaddrBits-1, pgIdxBits) === VTable(i)) & io.req.vaddr1_v & VMusing){
-      io.resp.paddr1 := Cat(PTable(i)(19,0),io.req.vaddr1(pgIdxBits - 1 , 0))
+    hit1(i) := (io.req.vaddr1(VAddrBits-1, offLen) === VTable(i)) & io.req.vaddr1_v
+    when((io.req.vaddr1(VAddrBits-1, offLen) === VTable(i)) & io.req.vaddr1_v & VMusing){
+      io.resp.paddr1 := Cat(PTable(i)(19,0),io.req.vaddr1(offLen - 1 , 0))
     }
   }
 
@@ -116,14 +120,14 @@ class LocalTLB(implicit p: Parameters) extends BoomModule with LocalTLBParameter
 }
 
 
-class LocalMMU(implicit p: Parameters) extends BoomModule with HWParameters{
+class LocalMMU(implicit p: Parameters) extends XSModule with HWParameters{
   // val io = IO(new LocalTLBIO)
   val io = IO(new Bundle{
     val ALocalMMUIO = (new LocalMMUIO)
     val BLocalMMUIO = (new LocalMMUIO)
     val CLocalMMUIO = (new LocalMMUIO)
     // val DLocalMMUIO = new LocalMMUIO
-    val Config = new MMUConfigIO
+    val Config = (new MMUConfigIO)
     val LastLevelCacheTLIO = Flipped(new MMU2TLIO)//改！TODO:
     // val DramReq = Input(UInt(64.W))//改！TODO:
   })
@@ -184,6 +188,7 @@ class LocalMMU(implicit p: Parameters) extends BoomModule with HWParameters{
   io.LastLevelCacheTLIO.Request.bits.RequestType_isWrite := false.B
   io.LastLevelCacheTLIO.Request.bits.RequestData := 0.U
   io.LastLevelCacheTLIO.Request.valid := false.B
+  io.LastLevelCacheTLIO.Response.ready := false.B
   // //输出ABC的信息和valid和hasrequest
   // printf(p"ALocalMMUIO ${io.ALocalMMUIO.Request.bits} request_valid ${io.ALocalMMUIO.Request.valid} ${io.ALocalMMUIO.Request.ready} ${io.ALocalMMUIO.Response}\n")
   // printf(p"BLocalMMUIO ${io.BLocalMMUIO.Request.bits} request_valid ${io.BLocalMMUIO.Request.valid} ${io.BLocalMMUIO.Request.ready} ${io.BLocalMMUIO.Response}\n")
@@ -242,30 +247,72 @@ class LocalMMU(implicit p: Parameters) extends BoomModule with HWParameters{
     io.LastLevelCacheTLIO.Request.valid := true.B
   }
 
-  io.ALocalMMUIO.Response := io.LastLevelCacheTLIO.Response
-  io.BLocalMMUIO.Response := io.LastLevelCacheTLIO.Response
-  io.CLocalMMUIO.Response := io.LastLevelCacheTLIO.Response
+  io.ALocalMMUIO.Response.bits := io.LastLevelCacheTLIO.Response.bits
+  io.BLocalMMUIO.Response.bits := io.LastLevelCacheTLIO.Response.bits
+  io.CLocalMMUIO.Response.bits := io.LastLevelCacheTLIO.Response.bits
   io.ALocalMMUIO.Response.valid := false.B
   io.BLocalMMUIO.Response.valid := false.B
   io.CLocalMMUIO.Response.valid := false.B
-  when(io.LastLevelCacheTLIO.Response.valid)
+
+  when(sourceid2port(io.LastLevelCacheTLIO.Response.bits.ReseponseSourceID) === LocalMMUTaskType.AFirst){
+    io.ALocalMMUIO.Response.valid := io.LastLevelCacheTLIO.Response.valid
+    io.LastLevelCacheTLIO.Response.ready := io.ALocalMMUIO.Response.ready
+  }.elsewhen(sourceid2port(io.LastLevelCacheTLIO.Response.bits.ReseponseSourceID) === LocalMMUTaskType.BFirst){
+    io.BLocalMMUIO.Response.valid := io.LastLevelCacheTLIO.Response.valid
+    io.LastLevelCacheTLIO.Response.ready := io.BLocalMMUIO.Response.ready
+  }.elsewhen(sourceid2port(io.LastLevelCacheTLIO.Response.bits.ReseponseSourceID) === LocalMMUTaskType.CFirst){
+    io.CLocalMMUIO.Response.valid := io.LastLevelCacheTLIO.Response.valid
+    io.LastLevelCacheTLIO.Response.ready := io.CLocalMMUIO.Response.ready
+  }.otherwise{
+
+  }
+
+  //输出每次的请求
+  if (YJPDebugEnable)
   {
-    //sourceid2port和sourceid的信息
-    // printf(p"[localmmu]sourceid2port ${sourceid2port(io.LastLevelCacheTLIO.Response.bits.ReseponseSourceID)} io.LastLevelCacheTLIO.Response.bits.ReseponseSourceID ${io.LastLevelCacheTLIO.Response.bits.ReseponseSourceID}\n")
+    val AML_Read_Request_times = RegInit(0.U(64.W))
+    val AML_Write_Request_times = RegInit(0.U(64.W))
+    val BML_Read_Request_times = RegInit(0.U(64.W))
+    val BML_Write_Request_times = RegInit(0.U(64.W))
+    val CML_Read_Request_times = RegInit(0.U(64.W))
+    val CML_Write_Request_times = RegInit(0.U(64.W))
 
-    when(sourceid2port(io.LastLevelCacheTLIO.Response.bits.ReseponseSourceID) === LocalMMUTaskType.AFirst){
-      io.ALocalMMUIO.Response.valid := true.B
-    }.elsewhen(sourceid2port(io.LastLevelCacheTLIO.Response.bits.ReseponseSourceID) === LocalMMUTaskType.BFirst){
-      io.BLocalMMUIO.Response.valid := true.B
-    }.elsewhen(sourceid2port(io.LastLevelCacheTLIO.Response.bits.ReseponseSourceID) === LocalMMUTaskType.CFirst){
-      io.CLocalMMUIO.Response.valid := true.B
-    }.otherwise{
+    when(io.ALocalMMUIO.Request.valid && io.ALocalMMUIO.Request.ready)
+    {
+      when(io.ALocalMMUIO.Request.bits.RequestType_isWrite)
+      {
+        AML_Write_Request_times := AML_Write_Request_times + 1.U
+      }.otherwise{
+        AML_Read_Request_times := AML_Read_Request_times + 1.U
+      }
+    }
 
+    when(io.BLocalMMUIO.Request.valid && io.BLocalMMUIO.Request.ready)
+    {
+      when(io.BLocalMMUIO.Request.bits.RequestType_isWrite)
+      {
+        BML_Write_Request_times := BML_Write_Request_times + 1.U
+      }.otherwise{
+        BML_Read_Request_times := BML_Read_Request_times + 1.U
+      }
+    }
+
+    when(io.CLocalMMUIO.Request.valid && io.CLocalMMUIO.Request.ready)
+    {
+      when(io.CLocalMMUIO.Request.bits.RequestType_isWrite)
+      {
+        CML_Write_Request_times := CML_Write_Request_times + 1.U
+      }.otherwise{
+        CML_Read_Request_times := CML_Read_Request_times + 1.U
+      }
+    }
+
+    //每次请求发出时，输出一下
+    when(io.ALocalMMUIO.Request.fire || io.BLocalMMUIO.Request.fire || io.CLocalMMUIO.Request.fire)
+    {
+      printf(p"[LocalMMU] AML_Read_Request_times ${AML_Read_Request_times} AML_Write_Request_times ${AML_Write_Request_times} BML_Read_Request_times ${BML_Read_Request_times} BML_Write_Request_times ${BML_Write_Request_times} CML_Read_Request_times ${CML_Read_Request_times} CML_Write_Request_times ${CML_Write_Request_times}\n")
     }
   }
-  //输出每次的请求
-  when(io.LastLevelCacheTLIO.Request.valid){
-    // printf(p"io.LastLevelCacheTLIO.Request.bits.RequestPhysicalAddr ${io.LastLevelCacheTLIO.Request.bits.RequestPhysicalAddr} io.LastLevelCacheTLIO.Request.bits.RequestType_isWrite ${io.LastLevelCacheTLIO.Request.bits.RequestType_isWrite} io.LastLevelCacheTLIO.Request.bits.RequestData ${io.LastLevelCacheTLIO.Request.bits.RequestData}\n")
-  }
+
 
 }

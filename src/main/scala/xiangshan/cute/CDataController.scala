@@ -1,10 +1,12 @@
-package xiangshan.backend.cute
+
+package xiangshan.cute
 
 import chisel3._
 import chisel3.util._
 import org.chipsalliance.cde.config._
 //import boom.exu.ygjk._
 //import boom.util._
+import freechips.rocketchip.util.SeqToAugmentedSeq
 
 //代表对MatrixTE供数的供数逻辑控制单元，隶属于TE，负责选取Scarchpad，选取Scarchpad的行，向TE供数。
 //主要问题在如何设计Scarchpad，在为两种模式供数时(矩阵乘运算和卷积运算)，不存在bank冲突，数据每拍都能完整供应上。
@@ -25,22 +27,25 @@ class CDataController(implicit p: Parameters) extends Module with HWParameters{
   io.Matrix_C.valid := false.B
   io.Matrix_C.bits := 0.U
   io.ResultMatrix_D.ready := false.B
-  io.FromScarchPadIO.WriteBankAddr.valid := false.B
-  io.FromScarchPadIO.WriteBankAddr.bits := 0.U.asTypeOf(io.FromScarchPadIO.WriteBankAddr.bits)
-  io.FromScarchPadIO.WriteRequestData.valid := false.B
-  io.FromScarchPadIO.WriteRequestData.bits := 0.U.asTypeOf(io.FromScarchPadIO.WriteRequestData.bits)
-  io.ConfigInfo.MicroTaskEndReady := false.B
+  io.FromScarchPadIO.WriteBankAddr := 0.U.asTypeOf(io.FromScarchPadIO.WriteBankAddr)
+  io.FromScarchPadIO.WriteRequestData := 0.U.asTypeOf(io.FromScarchPadIO.WriteRequestData)
+  io.ConfigInfo.MicroTaskEndValid := false.B
   io.ConfigInfo.MicroTaskReady := false.B
   io.ConfigInfo.MicroTask_TEComputeEndValid := false.B
 
+  io.AfterOpsInterface.CDCDataToInterface.valid := false.B
+  io.AfterOpsInterface.CDCDataToInterface.bits := 0.U.asTypeOf(io.AfterOpsInterface.CDCDataToInterface.bits)
+  io.AfterOpsInterface.InterfaceToCDCData.ready := false.B
+  io.AfterOpsInterface.VecInstQueueID := 0.U
 
-  io.FromScarchPadIO.ReadBankAddr.bits := 0.U
-  io.FromScarchPadIO.ReadBankAddr.valid := false.B
+
+
+  io.FromScarchPadIO.ReadBankAddr := 0.U.asTypeOf(io.FromScarchPadIO.ReadBankAddr)
+
   val ScarchPadReadResponseData = io.FromScarchPadIO.ReadResponseData //1周期的延迟
   // val ScarchPadChosen = io.FromScarchPadIO.Chosen
 
-  io.FromScarchPadIO.WriteRequestData.valid := false.B
-  io.FromScarchPadIO.WriteRequestData.bits := 0.U
+  io.FromScarchPadIO.WriteRequestData := 0.U.asTypeOf(io.FromScarchPadIO.WriteRequestData)
 
   val ConfigInfo = io.ConfigInfo
 
@@ -64,7 +69,7 @@ class CDataController(implicit p: Parameters) extends Module with HWParameters{
   val D_Datatype                          = RegInit(0.U(ElementDataType.DataTypeBitWidth.W))     //数据类型，0是int8，1是int16，2是int32，3是fp16
 
 
-
+  assert(io.ComputeGo === io.Matrix_C.ready, "CDC: ComputeGo and Matrix_C.ready should be the same!")
   //状态机
   when(state === s_idle){
     ConfigInfo.MicroTaskReady := true.B
@@ -134,7 +139,7 @@ class CDataController(implicit p: Parameters) extends Module with HWParameters{
   val ReadRequest = WireInit(false.B)
   val WriteRequset = WireInit(false.B)
 
-  val ReadScarchPadDataHoldReg = RegInit(0.U(ScarchPadReadResponseData.bits.asUInt.getWidth.W)) //保存ScarchPad的数据，当发生MTE的NACK时，可以不需要重新从ScarchPad读数
+  val ReadScarchPadDataHoldReg = RegInit(0.U((ResultWidth*Matrix_M*Matrix_N).W)) //保存ScarchPad的数据，当发生MTE的NACK时，可以不需要重新从ScarchPad读数
   val ReadScarchPadDataHoldValid = RegInit(false.B) //保存ScarchPad的数据，当发生MTE的NACK时，可以不需要重新从ScarchPad读数
 
 
@@ -152,7 +157,7 @@ class CDataController(implicit p: Parameters) extends Module with HWParameters{
       ReadScarchPadDataHoldReg := 0.U
       ReadScarchPadDataHoldValid := false.B
 
-      assert(ScaratchpadWorkingTensor_N =/= Tensor_N.U, "ScaratchpadWorkingTensor_N is not Full!")
+      assert(ScaratchpadWorkingTensor_N === Tensor_N.U, "ScaratchpadWorkingTensor_N = %d is not Full!", ScaratchpadWorkingTensor_N)
       //阶段1，计算初始化完成，开始工作
       calculate_state := s_cal_working
 
@@ -167,7 +172,7 @@ class CDataController(implicit p: Parameters) extends Module with HWParameters{
       //阶段2，计算开始，计算对Scarchpad的取数地址
 
       //循环的最外层是M，然后是N
-      io.FromScarchPadIO.ReadBankAddr.valid := false.B
+      io.FromScarchPadIO.ReadBankAddr := 0.U.asTypeOf(io.FromScarchPadIO.ReadBankAddr)
       val load_addr =  M_Iterator * N_IteratorMax + N_Iterator
 
       when(io.ComputeGo && CVectorCount < Max_Caculate_Iter){
@@ -175,8 +180,8 @@ class CDataController(implicit p: Parameters) extends Module with HWParameters{
         when(K_Iterator === 0.U)
         {
           ReadRequest := true.B
-          io.FromScarchPadIO.ReadBankAddr.valid := true.B
-          io.FromScarchPadIO.ReadBankAddr.bits.map(_ := load_addr)
+          io.FromScarchPadIO.ReadBankAddr.map(_.valid := true.B)
+          io.FromScarchPadIO.ReadBankAddr.map(_.bits := load_addr)
         }
         K_Iterator := K_Iterator + 1.U
         when(K_Iterator === K_IteratorMax - 1.U){
@@ -188,12 +193,17 @@ class CDataController(implicit p: Parameters) extends Module with HWParameters{
           }
         }
       }.otherwise{
-        io.FromScarchPadIO.ReadBankAddr.valid := false.B
+        io.FromScarchPadIO.ReadBankAddr := 0.U.asTypeOf(io.FromScarchPadIO.ReadBankAddr)
       }
 
-      when(ScarchPadReadResponseData.valid || ReadScarchPadDataHoldValid){
+      val Response_valid = ScarchPadReadResponseData.map(_.valid).reduce(_&&_)
+      val Response_data = Wire(Vec(CScratchpadNBanks, (UInt(CScratchpadEntryBitSize.W))))
+      for (i <- 0 until CScratchpadNBanks){
+        Response_data(i) := ScarchPadReadResponseData(i).bits
+      }
+      when(Response_valid|| ReadScarchPadDataHoldValid){
         io.Matrix_C.valid := true.B
-        io.Matrix_C.bits := Mux(ReadScarchPadDataHoldValid,ReadScarchPadDataHoldReg,ScarchPadReadResponseData.bits.asUInt)
+        io.Matrix_C.bits := Mux(ReadScarchPadDataHoldValid,ReadScarchPadDataHoldReg,Response_data.asUInt)
       }
 
 
@@ -211,12 +221,12 @@ class CDataController(implicit p: Parameters) extends Module with HWParameters{
         //输出AVectorCount，VectorA的信息
         if (YJPCDCDebugEnable)
         {
-          printf("[CDataController<%d>]CDataController: CVectorCount is %d\n",io.DebugInfo.DebugTimeStampe, CVectorCount)
+          printf("[CDataController<%d>]CDataController: CVectorCount is %d,CMatrix is %d\n",io.DebugInfo.DebugTimeStampe, CVectorCount,io.Matrix_C.bits)
         }
-      }.elsewhen(io.Matrix_C.valid && !io.Matrix_C.ready && !io.ComputeGo && ScarchPadReadResponseData.valid){
+      }.elsewhen(io.Matrix_C.valid && !io.Matrix_C.ready && !io.ComputeGo && Response_valid){
         //如果数据没有被消耗，那么我们就要保存ScarchPad的数据
         //但我们得看看ScarchPad的数据是不是有效的
-        ReadScarchPadDataHoldReg := ScarchPadReadResponseData.bits.asUInt
+        ReadScarchPadDataHoldReg := Response_data.asUInt
         ReadScarchPadDataHoldValid := true.B
       }.elsewhen(io.Matrix_C.valid && !io.Matrix_C.ready && !io.ComputeGo && ReadScarchPadDataHoldValid)
       {
@@ -228,24 +238,31 @@ class CDataController(implicit p: Parameters) extends Module with HWParameters{
       //只要数据有效，我们就尝试去写CSCP,或者因为需要执行后操作而选择送入后操作的接口
       //当不是最后的后操作Tile时，我们不需要执行后操作
       when(io.ResultMatrix_D.valid && !Is_AfterOps_Tile){
-        io.FromScarchPadIO.WriteBankAddr.valid := true.B
-        io.FromScarchPadIO.WriteRequestData.valid := true.B
-        io.FromScarchPadIO.WriteRequestData.bits := io.ResultMatrix_D.bits.asTypeOf(io.FromScarchPadIO.WriteRequestData.bits)
+        io.FromScarchPadIO.WriteBankAddr.map(_.valid := true.B)
+        io.FromScarchPadIO.WriteRequestData.map(_.valid := true.B)
+        val SCP_Wrie_data = Wire((Vec(CScratchpadNBanks, (UInt(CScratchpadEntryBitSize.W)))))
+        SCP_Wrie_data := io.ResultMatrix_D.bits.asTypeOf(SCP_Wrie_data)
+        for (i <- 0 until CScratchpadNBanks){
+          io.FromScarchPadIO.WriteRequestData(i).bits := SCP_Wrie_data(i)
+        }
+
         WriteRequset := true.B//此时只要数据有效，就喜欢进行写SCP
         io.ResultMatrix_D.ready := Mux(ReadRequest===true.B,false.B,WriteRequset)//保证了握手信号，只在写的时候才会拉高
 
         val store_addr = WireInit(DVectorCount)
-        io.FromScarchPadIO.WriteBankAddr.bits.map(_ := store_addr)//写地址就是DVector的计数
+        io.FromScarchPadIO.WriteBankAddr.map(_.bits := store_addr)//写地址就是DVector的计数
         when(io.ResultMatrix_D.fire){
           DVectorCount := DVectorCount + 1.U
           if (YJPCDCDebugEnable)
           {
             printf("[CDataController<%d>]CDataController: DVectorCount is %d\n", io.DebugInfo.DebugTimeStampe, DVectorCount)
           }
+          when(DVectorCount === Max_Caculate_Iter - 1.U)
+          {//执行计算时，一直是全精度的数据，所以用Max_Caculate_Iter作为迭代器的结束条件
+            calculate_state := s_cal_end
+          }
         }
-        when(DVectorCount === Max_Caculate_Iter - 1.U){//执行计算时，一直是全精度的数据，所以用Max_Caculate_Iter作为迭代器的结束条件
-          calculate_state := s_cal_end
-        }
+
       }.elsewhen(io.ResultMatrix_D.valid && Is_AfterOps_Tile)//需要执行后操作
       {
         //C的返回结果送入到后操作接口
@@ -262,10 +279,14 @@ class CDataController(implicit p: Parameters) extends Module with HWParameters{
         //后操作接口的返回结果送入到ScarchPad
         WriteRequset := io.AfterOpsInterface.InterfaceToCDCData.valid
         io.AfterOpsInterface.InterfaceToCDCData.ready :=  Mux(ReadRequest===true.B,false.B,WriteRequset)//保证了握手信号，只在写的时候才会拉高
-        io.FromScarchPadIO.WriteBankAddr.valid := io.AfterOpsInterface.InterfaceToCDCData.valid
-        io.FromScarchPadIO.WriteRequestData.valid := io.AfterOpsInterface.InterfaceToCDCData.valid
-        io.FromScarchPadIO.WriteRequestData.bits := io.AfterOpsInterface.InterfaceToCDCData.bits.asTypeOf(io.FromScarchPadIO.WriteRequestData.bits)
-        io.FromScarchPadIO.WriteBankAddr.bits.map(_ := io.AfterOpsInterface.CDCStoreAddr)//用CDCStoreAddr作为写地址
+        io.FromScarchPadIO.WriteBankAddr.map(_.valid := WriteRequset)
+        io.FromScarchPadIO.WriteRequestData.map(_.valid := WriteRequset)
+        val store_data = Wire((Vec(CScratchpadNBanks, (UInt(CScratchpadEntryBitSize.W)))))
+        store_data := io.AfterOpsInterface.InterfaceToCDCData.bits.asTypeOf(store_data)
+        for (i <- 0 until CScratchpadNBanks){
+          io.FromScarchPadIO.WriteRequestData(i).bits := store_data(i)
+          io.FromScarchPadIO.WriteBankAddr(i).bits := io.AfterOpsInterface.CDCStoreAddr
+        }
 
         when(io.AfterOpsInterface.InterfaceToCDCData.fire){
           DVectorCount := DVectorCount + 1.U

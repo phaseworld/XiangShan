@@ -63,6 +63,7 @@ class CuteCsrIO(implicit p: Parameters) extends XSBundle {
   val set_tresp = Output(Valid(UInt(6.W)))
   val set_trespdata = Output(Valid(UInt(XLEN.W)))
   val set_tbadvaddr = Output(Valid(UInt(XLEN.W)))
+  val set_tcmdbusy = Output(Valid(UInt(1.W)))
 
 }
 

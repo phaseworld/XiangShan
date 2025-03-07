@@ -34,7 +34,7 @@ import utility._
 import xiangshan._
 import xiangshan.backend.Bundles.{DynInst, IssueQueueIQWakeUpBundle, LoadShouldCancel, MemExuInput, MemExuOutput, VPUCtrlSignals}
 import xiangshan.backend.ctrlblock.{DebugLSIO, LsTopdownInfo}
-import xiangshan.backend.datapath.DataConfig.{IntData, VecData, FpData}
+import xiangshan.backend.datapath.DataConfig.{FpData, IntData, VecData}
 import xiangshan.backend.datapath.RdConfig.{IntRD, VfRD}
 import xiangshan.backend.datapath.WbConfig._
 import xiangshan.backend.datapath.DataConfig._
@@ -42,7 +42,7 @@ import xiangshan.backend.datapath._
 import xiangshan.backend.dispatch.CoreDispatchTopDownIO
 import xiangshan.backend.exu.ExuBlock
 import xiangshan.backend.fu.vector.Bundles.{VConfig, VType}
-import xiangshan.backend.fu.{FenceIO, FenceToSbuffer, FuConfig, FuType, PFEvent, PerfCounterIO}
+import xiangshan.backend.fu.{CuteCsrIO, FenceIO, FenceToSbuffer, FuConfig, FuType, PFEvent, PerfCounterIO}
 import xiangshan.backend.issue.EntryBundles._
 import xiangshan.backend.issue.{Scheduler, SchedulerArithImp, SchedulerImpBase, SchedulerMemImp}
 import xiangshan.backend.rob.{RobCoreTopDownIO, RobDebugRollingIO, RobLsqIO, RobPtr}
@@ -848,6 +848,8 @@ class BackendInlinedImp(override val wrapper: BackendInlined)(implicit p: Parame
 
   io.csrCustomCtrl := csrio.customCtrl
 
+  io.cute <> csrio.cute
+
   io.toTop.cpuHalted := ctrlBlock.io.toTop.cpuHalt
 
   io.traceCoreInterface <> ctrlBlock.io.traceCoreInterface
@@ -1058,6 +1060,8 @@ class BackendIO(implicit p: Parameters, params: BackendParams) extends XSBundle 
   val frontendCsrCtrl = Output(new CustomCSRCtrlIO)
   val frontendTlbCsr = Output(new TlbCsrBundle)
   val frontendReset = Output(Reset())
+
+  val cute = Flipped(new CuteCsrIO)
 
   val mem = new BackendMemIO
 

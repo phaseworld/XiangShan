@@ -1,11 +1,11 @@
 
-package xiangshan.backend.cute
+package xiangshan.cute
 
 import chisel3._
 import chisel3.util._
 import org.chipsalliance.cde.config._
 //import boom.exu.ygjk._
-
+//import boom.util._
 //AMemoryLoader，用于加载A矩阵的数据，供给Scratchpad使用
 //从不同的存储介质中加载数据，供给Scratchpad使用
 
@@ -59,7 +59,8 @@ class AMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
   io.ToScarchPadIO.Data.valid := false.B
   io.ToScarchPadIO.Data.bits := 0.U
   io.LocalMMUIO.Request.valid := false.B
-  io.LocalMMUIO.Request.bits := DontCare
+  io.LocalMMUIO.Request.bits := 0.U.asTypeOf(io.LocalMMUIO.Request.bits)
+  io.LocalMMUIO.Response.ready := false.B
 
   io.ConfigInfo.MicroTaskEndValid := false.B
   io.ConfigInfo.MicroTaskReady := false.B
@@ -102,8 +103,8 @@ class AMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
   val memoryload_state = RegInit(s_load_idle)
   val MemoryOrder_LoadConfig = RegInit(MemoryOrderType.OrderType_Mb_Kb)
 
-  val IH_Stride = RegInit(0.U(log2Ceil(MMUAddrWidth).W))
-  val IW_Stride = RegInit(0.U(log2Ceil(MMUAddrWidth).W))
+  val IH_Stride = RegInit(0.U((MMUAddrWidth).W))
+  val IW_Stride = RegInit(0.U((MMUAddrWidth).W))
 
   val Conherent = RegInit(true.B) //是否一致性访存的标志位，由TaskController提供
 
@@ -113,8 +114,8 @@ class AMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
   //允许每个bank最多1个nack，这样保证只要有bank空闲我们都能写入数据，同时保证了Load请求的译码不停顿。
   val NACK_ZeroFill_Hloding_Reg = RegInit((VecInit(Seq.fill(AScratchpadNBanks)(0.U((new ASourceIdSearch).getWidth.W)))))//每个bank的NACK值
   val NACK_ZeroFill_Hloding_Valid = RegInit(VecInit(Seq.fill(AScratchpadNBanks)(false.B)))//每个bank的NACK计数器是否有效
-  val Zero_Fill_TableItem = Wire((VecInit(Seq.fill(AScratchpadNBanks)(0.U((new ASourceIdSearch).getWidth.W)))))
-  val Zero_Fill_TableItem_Valid = Wire(VecInit(Seq.fill(AScratchpadNBanks)(false.B)))
+  val Zero_Fill_TableItem = WireInit((VecInit(Seq.fill(AScratchpadNBanks)(0.U((new ASourceIdSearch).getWidth.W)))))
+  val Zero_Fill_TableItem_Valid = WireInit(VecInit(Seq.fill(AScratchpadNBanks)(false.B)))
 
   //如果configinfo有效
   //状态机
@@ -129,7 +130,7 @@ class AMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
       ScaratchpadTensor_K := ConfigInfo.ScaratchpadTensor_K
 
       Tensor_A_BaseVaddr := ConfigInfo.ApplicationTensor_A.ApplicationTensor_A_BaseVaddr
-      Tensor_Block_BaseAddr := ConfigInfo.ApplicationTensor_A.BlockTensor_A_BaseVaddr
+      // Tensor_Block_BaseAddr := ConfigInfo.ApplicationTensor_A.BlockTensor_A_BaseVaddr
       // Conherent := io.ConfigInfo.bits.ApplicationTensor_A.Conherent
 
       ApplicationTensor_A_Stride_M := ConfigInfo.ApplicationTensor_A.ApplicationTensor_A_Stride_M
@@ -148,7 +149,7 @@ class AMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
       Convolution_Current_KH_Index := ConfigInfo.Convolution_Current_KH_Index
       Convolution_Current_KW_Index := ConfigInfo.Convolution_Current_KW_Index
 
-      IH_Stride :=  Convolution_IW_DIM_Length * ConfigInfo.ApplicationTensor_A.ApplicationTensor_A_Stride_M //每移动一次IH，需要增加的地址偏移量
+      IH_Stride :=  ConfigInfo.ApplicationTensor_A.Convolution_Stride_W * ConfigInfo.ApplicationTensor_A.Convolution_OW_DIM_Length * ConfigInfo.ApplicationTensor_A.ApplicationTensor_A_Stride_M //每移动一次IH，需要增加的地址偏移量
       IW_Stride :=  ConfigInfo.ApplicationTensor_A.ApplicationTensor_A_Stride_M //每移动一次IW，需要增加的地址偏移量
       assert(ConfigInfo.ScaratchpadTensor_K === Tensor_K.U)
       //
@@ -156,7 +157,7 @@ class AMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
       {
         printf("[AML<%d>]AMemoryLoader Task Start\n",io.DebugInfo.DebugTimeStampe)
         //输出所有配置项
-        printf("[AML<%d>]ScaratchpadTensor_M:%d, ScaratchpadTensor_K:%d, Tensor_A_BaseVaddr:%x, Tensor_Block_BaseAddr:%x, ApplicationTensor_A_Stride_M:%x, Convolution_OH_DIM_Length:%d, Convolution_OW_DIM_Length:%d, Convolution_Stride_H:%d, Convolution_Stride_W:%d, Convolution_KH_DIM_Length:%d, Convolution_KW_DIM_Length:%d, dataType:%d, Convolution_Current_OH_Index:%d, Convolution_Current_OW_Index:%d, Convolution_Current_KH_Index:%d, Convolution_Current_KW_Index:%d\n",io.DebugInfo.DebugTimeStampe,ConfigInfo.ScaratchpadTensor_M,ConfigInfo.ScaratchpadTensor_K,ConfigInfo.ApplicationTensor_A.ApplicationTensor_A_BaseVaddr,ConfigInfo.ApplicationTensor_A.BlockTensor_A_BaseVaddr,ConfigInfo.ApplicationTensor_A.ApplicationTensor_A_Stride_M,ConfigInfo.ApplicationTensor_A.Convolution_OH_DIM_Length,ConfigInfo.ApplicationTensor_A.Convolution_OW_DIM_Length,ConfigInfo.ApplicationTensor_A.Convolution_Stride_H,ConfigInfo.ApplicationTensor_A.Convolution_Stride_W,ConfigInfo.ApplicationTensor_A.Convolution_KH_DIM_Length,ConfigInfo.ApplicationTensor_A.Convolution_KW_DIM_Length,ConfigInfo.ApplicationTensor_A.dataType,ConfigInfo.Convolution_Current_OH_Index,ConfigInfo.Convolution_Current_OW_Index,ConfigInfo.Convolution_Current_KH_Index,ConfigInfo.Convolution_Current_KW_Index)
+        printf("[AML<%d>]ScaratchpadTensor_M:%d, ScaratchpadTensor_K:%d, Tensor_A_BaseVaddr:%x, ApplicationTensor_A_Stride_M:%x, Convolution_OH_DIM_Length:%d, Convolution_OW_DIM_Length:%d, Convolution_Stride_H:%d, Convolution_Stride_W:%d, Convolution_KH_DIM_Length:%d, Convolution_KW_DIM_Length:%d, dataType:%d, Convolution_Current_OH_Index:%d, Convolution_Current_OW_Index:%d, Convolution_Current_KH_Index:%d, Convolution_Current_KW_Index:%d\n",io.DebugInfo.DebugTimeStampe,ConfigInfo.ScaratchpadTensor_M,ConfigInfo.ScaratchpadTensor_K,ConfigInfo.ApplicationTensor_A.ApplicationTensor_A_BaseVaddr,ConfigInfo.ApplicationTensor_A.ApplicationTensor_A_Stride_M,ConfigInfo.ApplicationTensor_A.Convolution_OH_DIM_Length,ConfigInfo.ApplicationTensor_A.Convolution_OW_DIM_Length,ConfigInfo.ApplicationTensor_A.Convolution_Stride_H,ConfigInfo.ApplicationTensor_A.Convolution_Stride_W,ConfigInfo.ApplicationTensor_A.Convolution_KH_DIM_Length,ConfigInfo.ApplicationTensor_A.Convolution_KW_DIM_Length,ConfigInfo.ApplicationTensor_A.dataType,ConfigInfo.Convolution_Current_OH_Index,ConfigInfo.Convolution_Current_OW_Index,ConfigInfo.Convolution_Current_KH_Index,ConfigInfo.Convolution_Current_KW_Index)
       }
     }
   }
@@ -164,7 +165,7 @@ class AMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
   //如果是memoryload_state === s_load_init，那么我们就要初始化各个寄存器
   //如果是memoryload_state === s_load_working，那么我们就要开始取数
   //如果是memoryload_state === s_load_end，那么我们就要结束取数
-  val TotalLoadSize = RegInit(0.U((log2Ceil(Tensor_M*Tensor_K)).W)) //总共要加载的张量大小，总加载的数据量不会超过Tensor_M*Tensor_K*ruduceWidthByte，这个是不会变的
+  val TotalLoadSize = RegInit(0.U((log2Ceil(Tensor_M*Tensor_K)+1).W)) //总共要加载的张量大小，总加载的数据量不会超过Tensor_M*Tensor_K*ruduceWidthByte，这个是不会变的
   val CurrentLoaded_BlockTensor_M = RegInit(0.U(ScaratchpadMaxTensorDimBitSize.W))
   val CurrentLoaded_BlockTensor_K = RegInit(0.U(ScaratchpadMaxTensorDimBitSize.W))
 
@@ -176,23 +177,32 @@ class AMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
   val MaxBlockTensor_M_Index = ScaratchpadTensor_M
   val MaxBlockTensor_K_Index = ScaratchpadTensor_K
 
-  val Init_Current_M_BaseAddr = RegInit(0.U(log2Ceil(MMUAddrWidth).W))//当前M不动的情况下的基地指
+  val Init_Current_M_BaseAddr = RegInit(0.U((MMUAddrWidth).W))//当前M不动的情况下的基地指
 
 
   val Request = io.LocalMMUIO.Request
 
   val Current_IH_Index = WireInit(0.S((log2Ceil(ConvolutionDIM_Max)+1).W))
+  val Current_IW_Index = WireInit(0.S((log2Ceil(ConvolutionDIM_Max)+1).W))
+
   //TODO:这里可能是性能瓶颈，如果这里不满足时序要求，我们可以在这里切流水，提前算好然后喂进AML,我们有一百种方法在这里优化时序:p
   //    Current_IH_Index := Cat(0.U(1.W),Convolution_Current_OH_Index).asSInt * Cat(0.U(1.W),Convolution_Stride_H).asSInt + Cat(0.U(1.W),Convolution_Current_KH_Index).asSInt - Cat(0.U(1.W),Convolution_KH_DIM_Length/2.U).asSInt
   Current_IH_Index := Cat(0.U(1.W),Convolution_Current_OH_Index).asSInt * Cat(0.U(1.W),Convolution_Stride_H).asSInt + Cat(0.U(1.W),Convolution_Current_KH_Index).asSInt - Cat(0.U(1.W),Convolution_KH_DIM_Length/2.U).asSInt//这里是计算当前的IH的index的初始值,如果变瓶颈了再改
   Current_IW_Index := Cat(0.U(1.W),Convolution_Current_OW_Index).asSInt * Cat(0.U(1.W),Convolution_Stride_W).asSInt + Cat(0.U(1.W),Convolution_Current_KW_Index).asSInt - Cat(0.U(1.W),Convolution_KW_DIM_Length/2.U).asSInt//这里是计算当前的IW的index的初始值,如果变瓶颈了再改
-  val Current_IW_Index = WireInit(0.S((log2Ceil(ConvolutionDIM_Max)+1).W))
   val Current_IH_Index_U = Current_IH_Index(log2Ceil(ConvolutionDIM_Max)-1,0)
   val Current_IW_Index_U = Current_IW_Index(log2Ceil(ConvolutionDIM_Max)-1,0)
+  val Next_IW = Current_IW_Index + Cat(0.U,Convolution_Stride_W).asSInt
+  val Next_IH = Current_IH_Index + Cat(0.U,Convolution_Stride_H).asSInt
+  val Next_IW_U = Next_IW(log2Ceil(ConvolutionDIM_Max)-1,0)
+  val Next_IH_U = Next_IH(log2Ceil(ConvolutionDIM_Max)-1,0)
+  val Init_IW = (Cat(0.U,Convolution_Current_KW_Index) - Cat(0.U,Convolution_KW_DIM_Length/2.U))
+  val Init_IW_U = Init_IW(log2Ceil(KernelSizeMax)-1,0)
   val Is_invalid_IH_IW = Current_IH_Index < 0.S || Current_IW_Index < 0.S || Current_IH_Index >= Cat(0.U(1.W),Convolution_IH_DIM_Length).asSInt || Current_IW_Index >= Cat(0.U(1.W),Convolution_IW_DIM_Length).asSInt
+  val Have_NACK_Need_ZeroFill = NACK_ZeroFill_Hloding_Valid.asUInt.orR
+  val Finish_Decode_Load_Request = !(CurrentLoaded_BlockTensor_M < MaxBlockTensor_M_Index && CurrentLoaded_BlockTensor_K < MaxBlockTensor_K_Index)
+  val Infight_Load_Request_Num = RegInit(0.U((log2Ceil(SoureceMaxNum)+1).W))//当前正在进行的访存请求的数量
 
-
-  val Current_M_BaseAddr = RegInit(0.U(log2Ceil(MMUAddrWidth).W))//当前M不动的情况下的基地指,为了保证时序，我们需要提前算好
+  val Current_M_BaseAddr = RegInit(0.U((MMUAddrWidth).W))//当前M不动的情况下的基地指,为了保证时序，我们需要提前算好
   //Current_M_BaseAddr这个值，需要根据下一次的IH和IW确定
   //IH和IW是否超界，如果超界，需要进行0填充，由Is_invalid_IH_IW根据OW、OH、stride_H、stride_W、KH、KW来判断
   //Current_M_BaseAddr只要在IH和IW不越界的情况下，值是对的即可。
@@ -207,6 +217,7 @@ class AMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
     CurrentLoaded_BlockTensor_K := 0.U
     Current_M_BaseAddr := IH_Stride * Current_IH_Index_U + IW_Stride * Current_IW_Index_U + Tensor_A_BaseVaddr
     Init_Current_M_BaseAddr := IH_Stride * Current_IH_Index_U + IW_Stride * Current_IW_Index_U + Tensor_A_BaseVaddr
+    Infight_Load_Request_Num := 0.U
 
   }.elsewhen(memoryload_state === s_load_working){
     //根据不同的MemoryOrder，执行不同的访存模式
@@ -222,7 +233,7 @@ class AMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
     Request.bits.RequestSourceID := sourceId.bits
     Request.bits.RequestType_isWrite := false.B
     Request.valid := true.B
-    when(CurrentLoaded_BlockTensor_M === MaxBlockTensor_M_Index || CurrentLoaded_BlockTensor_K === MaxBlockTensor_K_Index || Is_invalid_IH_IW)//Is_invalid_IH_IW时，不发出访存请求，尝试直接0填充
+    when(Finish_Decode_Load_Request || Is_invalid_IH_IW)//Is_invalid_IH_IW时，不发出访存请求，尝试直接0填充
     {
       Request.valid := false.B
     }
@@ -230,7 +241,7 @@ class AMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
     //输出oh,ow,ih,iw,is_invalid
     if (YJPAMLDebugEnable)
     {
-      printf("[AML<%d>]Current_OH_Index:%d,Current_OW_Index:%d,Current_IH_Index:%d,Current_IW_Index:%d,Is_invalid_IH_IW:%d\n",io.DebugInfo.DebugTimeStampe,Convolution_Current_OH_Index,Convolution_Current_OW_Index,Current_IH_Index_U,Current_IW_Index_U,Is_invalid_IH_IW)
+      printf("[AML<%d>]AML WORKING STATE!Current_OH_Index:%d,Current_OW_Index:%d,Current_IH_Index:%d,Current_IW_Index:%d,Is_invalid_IH_IW:%d\n",io.DebugInfo.DebugTimeStampe,Convolution_Current_OH_Index,Convolution_Current_OW_Index,Current_IH_Index_U,Current_IW_Index_U,Is_invalid_IH_IW)
     }
     //数据在Scarachpad中的编排
     //数据会先排M，再排K，
@@ -251,7 +262,7 @@ class AMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
     //
     // 在内存中的排布则是 0 1 2 3 4 5 6 7 8 9 a b c d e f g h i j k l m n o p q r s t u v w x y z .......
 
-    when(Request.fire && sourceId.valid && !Is_invalid_IH_IW){
+    when(Request.fire && sourceId.valid && !Is_invalid_IH_IW && !Finish_Decode_Load_Request){
       val TableItem = Wire(new ASourceIdSearch)
       TableItem.ScratchpadBankId := CurrentLoaded_BlockTensor_M % AScratchpadNBanks.U
       TableItem.ScratchpadAddr := ((CurrentLoaded_BlockTensor_M / AScratchpadNBanks.U) * Tensor_K.U) + CurrentLoaded_BlockTensor_K
@@ -260,20 +271,20 @@ class AMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
       if(YJPAMLDebugEnable)
       {
         //输出当前的IH和IW，M，K，当前访存任务的虚地址，五个一起输出
-        printf("[AML<%d>]Current_IH_Index:%d,Current_IW_Index:%d,CurrentLoaded_BlockTensor_M:%d,CurrentLoaded_BlockTensor_K:%d,RequestVirtualAddr:%x\n",io.DebugInfo.DebugTimeStampe,Current_IH_Index,Current_IW_Index,CurrentLoaded_BlockTensor_M,CurrentLoaded_BlockTensor_K,Request.bits.RequestVirtualAddr)
+        printf("[AML<%d>{AML Load Trace}]Load MMU Request! Current_IH_Index:%d,Current_IW_Index:%d,CurrentLoaded_BlockTensor_M:%d,CurrentLoaded_BlockTensor_K:%d,RequestVirtualAddr:%x\n",io.DebugInfo.DebugTimeStampe,Current_IH_Index,Current_IW_Index,CurrentLoaded_BlockTensor_M,CurrentLoaded_BlockTensor_K,Request.bits.RequestVirtualAddr)
       }
       when(CurrentLoaded_BlockTensor_M < MaxBlockTensor_M_Index && CurrentLoaded_BlockTensor_K < MaxBlockTensor_K_Index){
         CurrentLoaded_BlockTensor_M := CurrentLoaded_BlockTensor_M + 1.U
         Convolution_Current_OW_Index := Convolution_Current_OW_Index + 1.U
-        Current_M_BaseAddr := IH_Stride * Current_IH_Index_U + IW_Stride * (Current_IW_Index_U + Convolution_Stride_W) + Tensor_A_BaseVaddr //下一个M的地址,IW正常增加
+        Current_M_BaseAddr := IH_Stride * Current_IH_Index_U + IW_Stride * Next_IW_U + Tensor_A_BaseVaddr //下一个M的地址,IW正常增加
         when(Convolution_Current_OW_Index === Convolution_OW_DIM_Length - 1.U)
         {
           Convolution_Current_OW_Index := 0.U //OW变成0了
           Convolution_Current_OH_Index := Convolution_Current_OH_Index + 1.U //OH+1
           //计算这个地址可能是性能瓶颈，如果这里不满足时序要求，我们可以切流水算好地址，然后喂进来。做成一个算地址的FIFO即可，单单多几拍算地址的延迟而已，这里求地址的吞吐不变
-          Current_M_BaseAddr := IH_Stride * (Current_IH_Index_U + Convolution_Stride_H) + (Convolution_Current_KW_Index - Convolution_KW_DIM_Length/2.U) * IW_Stride + Tensor_A_BaseVaddr //下一个M的地址，IH正常增加，这要看kernel的值
+          Current_M_BaseAddr := IH_Stride * Next_IH_U + Init_IW_U * IW_Stride + Tensor_A_BaseVaddr //下一个M的地址，IH正常增加，这要看kernel的值
         }
-        when(CurrentLoaded_BlockTensor_M === MaxBlockTensor_M_Index - 1.U)
+        when(CurrentLoaded_BlockTensor_M === MaxBlockTensor_M_Index - 1.U)//next_K
         {
           CurrentLoaded_BlockTensor_M := 0.U
           CurrentLoaded_BlockTensor_K := CurrentLoaded_BlockTensor_K + 1.U
@@ -281,8 +292,25 @@ class AMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
           Convolution_Current_OW_Index := Init_Convolution_Current_OW_Index
           Current_M_BaseAddr := Init_Current_M_BaseAddr
         }
+
+        if (YJPAMLDebugEnable)
+        {
+          val debug_Current_M_BaseAddr = WireInit(0.U((MMUAddrWidth).W))
+          debug_Current_M_BaseAddr := IH_Stride * Current_IH_Index_U + IW_Stride * Next_IW_U + Tensor_A_BaseVaddr
+          when (Convolution_Current_OW_Index === Convolution_OW_DIM_Length - 1.U)
+          {
+            debug_Current_M_BaseAddr := IH_Stride * Next_IH_U + Init_IW_U * IW_Stride + Tensor_A_BaseVaddr
+            printf("[AML<%d>{Current_M_BaseAddr}]Next MMU Request! Convolution_Current_OW_Index === Convolution_OW_DIM_Length - 1.U\n",io.DebugInfo.DebugTimeStampe)
+          }
+          when (CurrentLoaded_BlockTensor_M === MaxBlockTensor_M_Index - 1.U)
+          {
+            debug_Current_M_BaseAddr := Init_Current_M_BaseAddr
+            printf("[AML<%d>{Current_M_BaseAddr}]Next MMU Request! CurrentLoaded_BlockTensor_M === MaxBlockTensor_M_Index - 1.U\n",io.DebugInfo.DebugTimeStampe)
+          }
+          printf("[AML<%d>{Current_M_BaseAddr}]Next MMU Request! debug_Current_M_BaseAddr:%x\n",io.DebugInfo.DebugTimeStampe,debug_Current_M_BaseAddr)
+        }
       }
-    }.elsewhen(Is_invalid_IH_IW)
+    }.elsewhen(Is_invalid_IH_IW && !Finish_Decode_Load_Request)
     {
       val TableItem = Wire(new ASourceIdSearch)
       TableItem.ScratchpadBankId := CurrentLoaded_BlockTensor_M % AScratchpadNBanks.U
@@ -300,46 +328,52 @@ class AMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
 
       val NACK2Stall = WireInit(false.B)//是否需要stall,如果当前的bank有NACK，那么就需要stall，暂时停止译码(基本不可能发生)
 
+      //io.LocalMMUIO.Response.valid === true,B时，是最高优先级的任务
+      //次高优先级的任务是以前的零填充的NACK的任务
+      //预填充好Zero_Fill_TableItem和Zero_Fill_TableItem_Valid，表示这一拍会执行的0填充任务，这些任务是上一拍冲突的任务，在这一拍优先被处理
       for (i <- 0 until AScratchpadNBanks)
       {
         //当前bank的NACK是有效的，且当前的bank不是当前Response的bank
-        Zero_Fill_TableItem_Valid(i) := NACK_ZeroFill_Hloding_Valid(i) && ((io.LocalMMUIO.Response.valid === false.B)||(NACK_ZeroFill_Hloding_Reg(i).asTypeOf(new ASourceIdSearch).ScratchpadBankId =/= TableItem.ScratchpadBankId))
+        Zero_Fill_TableItem_Valid(i) := NACK_ZeroFill_Hloding_Valid(i) && ((io.LocalMMUIO.Response.valid === false.B)||(Response_ScratchpadBankId =/= i.U))
         //如果Zero_Fill_TableItem_Valid为真，则NACK_ZeroFill_Hloding一定会被处理，所以这里要清空
         NACK_ZeroFill_Hloding_Valid(i) := Mux(Zero_Fill_TableItem_Valid(i),false.B,NACK_ZeroFill_Hloding_Valid(i))
-        Zero_Fill_TableItem(i) := Mux(Zero_Fill_TableItem_Valid(i),NACK_ZeroFill_Hloding_Reg(i),0.U.asTypeOf(new ASourceIdSearch))
+        Zero_Fill_TableItem(i) := Mux(Zero_Fill_TableItem_Valid(i),NACK_ZeroFill_Hloding_Reg(i),0.U)
       }
 
+      //接下来看当前的任务是否需要NACK
       when(IsNACK_From_Response && !IsNACK_From_NACKReg){
         //由于与Response的bank冲突，那么这个任务此刻不能被写回，且Reg中没有NACK，那么就需要将这个任务放入NACK的Reg中
-        NACK_ZeroFill_Hloding_Reg(TableItem.ScratchpadBankId) := TableItem
+        NACK_ZeroFill_Hloding_Reg(TableItem.ScratchpadBankId) := TableItem.asUInt
         NACK_ZeroFill_Hloding_Valid(TableItem.ScratchpadBankId) := true.B
+        if (YJPAMLDebugEnable)
+        {
+          printf("[AML<%d>]NACK_From_Response && not NACK From NACKReg! Response_bank_id = %d,decode_zerofill_bank_id = %d,NACK_Reg = %b\n",io.DebugInfo.DebugTimeStampe,Response_ScratchpadBankId,TableItem.ScratchpadBankId,NACK_ZeroFill_Hloding_Valid.asUInt)
+        }
       }.elsewhen(IsNACK_From_Response && IsNACK_From_NACKReg){
-        //如果当前任务的bank已经有NACK了，那就看这个NACK这一周期是否被处理了，如果没有被处理，那么就需要stall
-        when(Zero_Fill_TableItem_Valid(TableItem.ScratchpadBankId))
+        //如果当前任务的bank已经有NACK了，且NACK_Reg中有NACK冲突了，那么就需要stall,因为要优先处理response的任务
+        NACK2Stall := true.B
+        if (YJPAMLDebugEnable)
         {
-          NACK_ZeroFill_Hloding_Reg(TableItem.ScratchpadBankId) := TableItem
-          NACK_ZeroFill_Hloding_Valid(TableItem.ScratchpadBankId) := true.B
-        }.otherwise
-        {
-          NACK2Stall := true.B
+          printf("[AML<%d>]NACK_From_Response && NACK From NACKReg STALL!!! Response_bank_id = %d,decode_zerofill_bank_id = %d,NACK_Reg = %b\n",io.DebugInfo.DebugTimeStampe,Response_ScratchpadBankId,TableItem.ScratchpadBankId,NACK_ZeroFill_Hloding_Valid.asUInt)
         }
       }.elsewhen(!IsNACK_From_Response && IsNACK_From_NACKReg)
       {
-        //如果当前任务的Response bank没有冲突，但是Reg中有NACK冲突了，那么就看这个NACK这一周期是否被处理了，如果没有被处理，那么就需要stall
-        when(Zero_Fill_TableItem_Valid(TableItem.ScratchpadBankId))
+        //如果当前任务的Response bank没有冲突，但是Reg中有NACK冲突了，那么这个NACK这一拍就要被处理
+        NACK_ZeroFill_Hloding_Reg(TableItem.ScratchpadBankId) := TableItem.asUInt
+        NACK_ZeroFill_Hloding_Valid(TableItem.ScratchpadBankId) := true.B
+        if (YJPAMLDebugEnable)
         {
-          NACK_ZeroFill_Hloding_Reg(TableItem.ScratchpadBankId) := TableItem
-          NACK_ZeroFill_Hloding_Valid(TableItem.ScratchpadBankId) := true.B
-        }.otherwise
-        {
-          //讲道理这个情况不可能发生
-          NACK2Stall := true.B
+          printf("[AML<%d>]not NACK_From_Response && NACK From NACKReg! Response_bank_id = %d,decode_zerofill_bank_id = %d,NACK_Reg = %b\n",io.DebugInfo.DebugTimeStampe,Response_ScratchpadBankId,TableItem.ScratchpadBankId,NACK_ZeroFill_Hloding_Valid.asUInt)
         }
       }.otherwise
       {
         //恭喜我们没有发生NACK,这是常见情况
         Zero_Fill_TableItem_Valid(TableItem.ScratchpadBankId) := true.B
-        Zero_Fill_TableItem(TableItem.ScratchpadBankId) := TableItem
+        Zero_Fill_TableItem(TableItem.ScratchpadBankId) := TableItem.asUInt
+        if (YJPAMLDebugEnable)
+        {
+          printf("[AML<%d>]No NACK HAPPY!! Response_bank_id = %d,decode_zerofill_bank_id = %d,NACK_Reg = %b\n",io.DebugInfo.DebugTimeStampe,Response_ScratchpadBankId,TableItem.ScratchpadBankId,NACK_ZeroFill_Hloding_Valid.asUInt)
+        }
       }
 
 
@@ -348,12 +382,12 @@ class AMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
         when(CurrentLoaded_BlockTensor_M < MaxBlockTensor_M_Index && CurrentLoaded_BlockTensor_K < MaxBlockTensor_K_Index){
           CurrentLoaded_BlockTensor_M := CurrentLoaded_BlockTensor_M + 1.U
           Convolution_Current_OW_Index := Convolution_Current_OW_Index + 1.U
-          Current_M_BaseAddr := IH_Stride * Current_IH_Index_U + IW_Stride * (Current_IW_Index_U + Convolution_Stride_W) + Tensor_A_BaseVaddr //下一个M的地址,IW正常增加
+          Current_M_BaseAddr := IH_Stride * Current_IH_Index_U + IW_Stride * Next_IW_U + Tensor_A_BaseVaddr //下一个M的地址,IW正常增加
           when(Convolution_Current_OW_Index === Convolution_OW_DIM_Length - 1.U)
           {
             Convolution_Current_OW_Index := 0.U //OW变成0了
             Convolution_Current_OH_Index := Convolution_Current_OH_Index + 1.U //OH+1
-            Current_M_BaseAddr := IH_Stride * (Current_IH_Index_U + Convolution_Stride_H) + (Convolution_Current_KW_Index - Convolution_KW_DIM_Length/2.U) * IW_Stride + Tensor_A_BaseVaddr //下一个M的地址，IH正常增加，这要看kernel的值
+            Current_M_BaseAddr := IH_Stride * Next_IH_U + Init_IW_U * IW_Stride + Tensor_A_BaseVaddr //下一个M的地址，IH正常增加，这要看kernel的值
           }
           when(CurrentLoaded_BlockTensor_M === MaxBlockTensor_M_Index - 1.U)
           {
@@ -363,12 +397,71 @@ class AMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
             Convolution_Current_OW_Index := Init_Convolution_Current_OW_Index
             Current_M_BaseAddr := Init_Current_M_BaseAddr
           }
+
+          if (YJPAMLDebugEnable)
+          {
+            //输出下一个Current_M_BaseAddr的地址，同时输出计算这个值需要的其他值的数据
+            val debug_Current_M_BaseAddr = WireInit(0.U((MMUAddrWidth).W))
+            debug_Current_M_BaseAddr := IH_Stride * Current_IH_Index_U + IW_Stride * Next_IW_U + Tensor_A_BaseVaddr
+            when(Convolution_Current_OW_Index === Convolution_OW_DIM_Length - 1.U)
+            {
+              debug_Current_M_BaseAddr := IH_Stride * Next_IH_U + Init_IW_U * IW_Stride + Tensor_A_BaseVaddr
+              printf("[AML<%d>{Current_M_BaseAddr}]No Need Read Request Load! Convolution_Current_OW_Index === Convolution_OW_DIM_Length - 1.U\n",io.DebugInfo.DebugTimeStampe)
+            }
+            when(CurrentLoaded_BlockTensor_M === MaxBlockTensor_M_Index - 1.U)
+            {
+              debug_Current_M_BaseAddr := Init_Current_M_BaseAddr
+              printf("[AML<%d>{Current_M_BaseAddr}]No Need Read Request Load! CurrentLoaded_BlockTensor_M === MaxBlockTensor_M_Index - 1.U\n",io.DebugInfo.DebugTimeStampe)
+            }
+            printf("[AML<%d>{Current_M_BaseAddr}]No Need Read Request Load! Next M BaseAddr:%x\n",io.DebugInfo.DebugTimeStampe,debug_Current_M_BaseAddr)
+          }
+        }
+        if (YJPAMLDebugEnable)
+        {
+          printf("[AML<%d>{AML Load Trace}]No Need Read Request Load!Current_IH_Index:%d,Current_IW_Index:%d,CurrentLoaded_BlockTensor_M:%d,CurrentLoaded_BlockTensor_K:%d\n",io.DebugInfo.DebugTimeStampe,Current_IH_Index,Current_IW_Index,CurrentLoaded_BlockTensor_M,CurrentLoaded_BlockTensor_K)
+        }
+      }.otherwise
+      {
+        //stall
+        if (YJPAMLDebugEnable)
+        {
+          printf("[AML<%d>]NACK2Stall!\n",io.DebugInfo.DebugTimeStampe)
         }
       }
+
+    }.elsewhen(Finish_Decode_Load_Request && Have_NACK_Need_ZeroFill)//已经结束编码了，但是还有NACK的回填任务
+    {
+      //如果当前的任务已经完成，但是还有NACK的任务，那么就要处理NACK的任务
+      val Response_sourceId = io.LocalMMUIO.Response.bits.ReseponseSourceID
+      val Response_ScratchpadBankId = SoureceIdSearchTable(Response_sourceId).asTypeOf(new ASourceIdSearch).ScratchpadBankId
+      //io.LocalMMUIO.Response.valid === true,B时，是最高优先级的任务
+      //次高优先级的任务是以前的零填充的NACK的任务
+      //预填充好Zero_Fill_TableItem和Zero_Fill_TableItem_Valid，表示这一拍会执行的0填充任务，这些任务是上一拍冲突的任务，在这一拍优先被处理
+      for (i <- 0 until AScratchpadNBanks)
+      {
+        //当前bank的NACK是有效的，且当前的bank不是当前Response的bank
+        Zero_Fill_TableItem_Valid(i) := NACK_ZeroFill_Hloding_Valid(i) && ((io.LocalMMUIO.Response.valid === false.B)||(Response_ScratchpadBankId =/= i.U))
+        //如果Zero_Fill_TableItem_Valid为真，则NACK_ZeroFill_Hloding一定会被处理，所以这里要清空
+        NACK_ZeroFill_Hloding_Valid(i) := Mux(Zero_Fill_TableItem_Valid(i),false.B,NACK_ZeroFill_Hloding_Valid(i))
+        Zero_Fill_TableItem(i) := Mux(Zero_Fill_TableItem_Valid(i),NACK_ZeroFill_Hloding_Reg(i),0.U)
+      }
+      if (YJPAMLDebugEnable)
+      {
+        printf("[AML<%d>]Finish_Decode_Load_Request && Have_NACK_Need_ZeroFill\n",io.DebugInfo.DebugTimeStampe)
+      }
+    }.elsewhen(Finish_Decode_Load_Request && !Have_NACK_Need_ZeroFill)
+    {
+      //如果当前的任务已经完成，且没有NACK的任务,说明在等待Load的Response
+      if (YJPAMLDebugEnable)
+      {
+        printf("[AML<%d>]Waiting for Load Response (infight:%d).Finish_Decode_Load_Request && not Have_NACK_Need_ZeroFill!\n",io.DebugInfo.DebugTimeStampe,Infight_Load_Request_Num)
+      }
     }
+
     //接受访存的返回值
     //一个cam来存储访存请求的source_id对应的Scarchpad的地址和bank号
     //根据response的sourceid，找到对应的Scarchpad的地址和bank号，回填数据
+    io.LocalMMUIO.Response.ready := true.B
     when(io.LocalMMUIO.Response.valid){
       //Trick注意这个设计，是doublebuffer的，AB只能是doublebuffer，回数一定是不会堵的，而且我们有时间对数据进行压缩解压缩～
       //如果要做release设计，要么数据位宽翻倍，腾出周期来使得有空泡能给写任务进行，要么就是数据位宽不变，将读写端口变成独立的读和独立的写端口
@@ -391,11 +484,9 @@ class AMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
       if (YJPAMLDebugEnable)
       {
         //输出这次response的信息
-        printf("[AML]ResponseData:%x,ScratchpadBankId:%d,ScratchpadAddr:%d\n",ResponseData,ScratchpadBankId,ScratchpadAddr)
+        printf("[AML<%d>]ResponseData:%x,ScratchpadBankId:%d,ScratchpadAddr:%d\n",io.DebugInfo.DebugTimeStampe,ResponseData,ScratchpadBankId,ScratchpadAddr)
         //response的sourceid
-        printf("[AML]ResponseSourceID:%d\n",sourceId)
-        //输出这次的totalload
-        printf("[AML]TotalLoadSize:%d\n",TotalLoadSize)
+        printf("[AML<%d>]ResponseSourceID:%d\n",io.DebugInfo.DebugTimeStampe,sourceId)
       }
     }
 
@@ -413,12 +504,27 @@ class AMemoryLoader(implicit p: Parameters) extends Module with HWParameters{
         if(YJPAMLDebugEnable)
         {
           //输出这次的零填充信息
-          printf("[AML]ZeroFillData:%x,ScratchpadBankId:%d,ScratchpadAddr:%d\n",0.U,Zero_Fill_TableItem(i).asTypeOf(new ASourceIdSearch).ScratchpadBankId,Zero_Fill_TableItem(i).asTypeOf(new ASourceIdSearch).ScratchpadAddr)
+          printf("[AML<%d>]ZeroFillData:%x,ScratchpadBankId:%d,ScratchpadAddr:%d\n",io.DebugInfo.DebugTimeStampe,0.U,Zero_Fill_TableItem(i).asTypeOf(new ASourceIdSearch).ScratchpadBankId,Zero_Fill_TableItem(i).asTypeOf(new ASourceIdSearch).ScratchpadAddr)
         }
       }
     }
 
-    TotalLoadSize := TotalLoadSize + io.LocalMMUIO.Response.valid.asUInt + Zero_Fill_TableItem_Valid.map(_.asUInt).reduce(_+_)
+    Infight_Load_Request_Num := Mux(Request.fire === false.B && io.LocalMMUIO.Response.fire === true.B,Infight_Load_Request_Num - 1.U,
+      Mux(Request.fire === true.B && io.LocalMMUIO.Response.fire === false.B,Infight_Load_Request_Num + 1.U,Infight_Load_Request_Num))
+
+    val Load_Size = WireInit(0.U((log2Ceil(AScratchpadNBanks)+1).W))
+    Load_Size := io.LocalMMUIO.Response.valid.asUInt + PopCount(Zero_Fill_TableItem_Valid)
+
+    TotalLoadSize := TotalLoadSize + Load_Size
+    if(YJPAMLDebugEnable)
+    {
+      //输出总共加载的数据量
+
+      when(Load_Size =/= 0.U)
+      {
+        printf("[AML<%d>]TotalLoadSize:%d, Load_Size = %d, Zero_Fill_TableItem_Valid = %b,io.LocalMMUIO.Response.valid= %b\n",io.DebugInfo.DebugTimeStampe,TotalLoadSize + Load_Size,Load_Size,Zero_Fill_TableItem_Valid.asUInt,io.LocalMMUIO.Response.valid)
+      }
+    }
     when(TotalLoadSize === MaxBlockTensor_M_Index * MaxBlockTensor_K_Index){
       memoryload_state := s_load_end
     }

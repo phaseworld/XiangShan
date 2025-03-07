@@ -1,4 +1,5 @@
-package xiangshan.backend.cute
+
+package xiangshan.cute
 
 import chisel3._
 import chisel3.util._
@@ -14,8 +15,9 @@ class MatrixTE(implicit p: Parameters) extends Module with HWParameters{
     val VectorB = Flipped(DecoupledIO(UInt((ReduceWidth*Matrix_N).W)))
     val MatirxC = Flipped(DecoupledIO(UInt((ResultWidth*Matrix_M*Matrix_N).W)))
     val MatrixD = DecoupledIO(UInt((ResultWidth*Matrix_M*Matrix_N).W))
-    val ConfigInfo = Flipped(DecoupledIO(new ConfigInfoIO))
+    val ConfigInfo = Flipped((new MTEMicroTaskConfigIO))
     val ComputeGo            = Output(Bool())
+    val DebugInfo     = Input(new DebugInfoIO)
   })
 
   //实例化ReducePE
@@ -32,7 +34,7 @@ class MatrixTE(implicit p: Parameters) extends Module with HWParameters{
       Matrix(i)(j).ReduceB.valid      := io.VectorB.valid
       Matrix(i)(j).AddC.bits          := io.MatirxC.bits((i*Matrix_N+j+1)*ResultWidth-1,(i*Matrix_N+j)*ResultWidth)
       Matrix(i)(j).AddC.valid         := io.MatirxC.valid
-      Matrix(i)(j).ConfigInfo.bits    := io.ConfigInfo.bits
+      Matrix(i)(j).ConfigInfo.dataType:= io.ConfigInfo.dataType
       Matrix(i)(j).ConfigInfo.valid   := io.ConfigInfo.valid
       when(io.VectorA.valid && io.VectorB.valid && io.MatirxC.valid){
         // printf("[MatrixTE]: Matrix(%d)(%d) ReduceA:%x ReduceB:%x AddC:%x\n",i.U,j.U,Matrix(i)(j).ReduceA.bits,Matrix(i)(j).ReduceB.bits,Matrix(i)(j).AddC.bits)
@@ -69,17 +71,36 @@ class MatrixTE(implicit p: Parameters) extends Module with HWParameters{
   //确定所有的ready信号
   //当所有的ReducePE的输入都ready的时候，VectorA和VectorB的ready才为true
   //注意这里如果是时序不足的点，很简单只用考察一个PE即可，因为所有PE是同步执行的，这里这样写是保证逻辑完整完备，代码可读性高
-  val ReducePEInputAllReady = Matrix.map(_.map(_.ReduceA.ready).reduce(_&&_)).reduce(_&&_) &&
-    Matrix.map(_.map(_.ReduceB.ready).reduce(_&&_)).reduce(_&&_) &&
-    Matrix.map(_.map(_.AddC.ready).reduce(_&&_)).reduce(_&&_)
+  val ReducePEInputAllReady = Matrix(0)(0).ReduceA.ready && Matrix(0)(0).ReduceB.ready && Matrix(0)(0).AddC.ready
   io.VectorA.ready := ReducePEInputAllReady
   io.VectorB.ready := ReducePEInputAllReady
   io.MatirxC.ready := ReducePEInputAllReady
 
+  assert(io.VectorA.fire === io.VectorB.fire, "VectorA and VectorB should be fired at the same time")
+
+  if(YJPMACDebugEnable)
+  {
+    when(io.VectorA.fire)
+    {
+      printf("[MatrixTE<%d>]: VectorA:%x\n",io.DebugInfo.DebugTimeStampe,io.VectorA.bits)
+    }
+    when(io.VectorB.fire)
+    {
+      printf("[MatrixTE<%d>]: VectorB:%x\n",io.DebugInfo.DebugTimeStampe,io.VectorB.bits)
+    }
+    when(io.MatirxC.fire)
+    {
+      printf("[MatrixTE<%d>]: MatirxC:%x\n",io.DebugInfo.DebugTimeStampe,io.MatirxC.bits)
+    }
+    when(io.MatrixD.fire)
+    {
+      printf("[MatrixTE<%d>]: MatrixD:%x\n",io.DebugInfo.DebugTimeStampe,io.MatrixD.bits)
+    }
+  }
   //全体PE对DC进行的完全同步的控制信号，保证每个PE的迭代器同步更新，保证每个Internal Reduce Dim的第一个次计算将C的数据送入PE，最后一次计算将PE的数据送回D
   io.ComputeGo := ReducePEInputAllReady
 
-  val ReducePEConfigAllReady = Matrix.map(_.map(_.ConfigInfo.ready).reduce(_&&_)).reduce(_&&_)
+  val ReducePEConfigAllReady = Matrix(0)(0).ConfigInfo.ready
   io.ConfigInfo.ready := ReducePEConfigAllReady
 
   //越浅的fifo，越少的能量消耗～

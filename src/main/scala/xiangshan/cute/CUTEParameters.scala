@@ -1,23 +1,24 @@
 
-package xiangshan.backend.cute
+package xiangshan.cute
 
 import chisel3._
 import chisel3.util._
 import org.chipsalliance.cde.config._
-import boom.exu.ygjk._
+import xiangshan.{HasXSParameter, XSBundle}
+//import boom.exu.ygjk._
 import freechips.rocketchip.subsystem._
 import freechips.rocketchip.diplomacy._
 import freechips.rocketchip.prci._
 import freechips.rocketchip.tile._
-import boom.common.BoomBundle
+//import boom.common.XSBundle
 // import freechips.rocketchip.regmapper.RRTest0Map
 
 case class MMAccConfig()
 case object MMAccKey extends Field[Option[MMAccConfig]](None)
 case object BuildDMAygjk extends Field[Seq[Parameters => LazyRoCC]](Nil)
-// class Withacc_MMacc extends Config((site,here,up) => {  
+// class Withacc_MMacc extends Config((site,here,up) => {
 //     case BuildYGAC =>
-//         (p:Parameters) => {          
+//         (p:Parameters) => {
 //             val myAccel = Module(new MMacc)
 //             myAccel
 //         }
@@ -26,11 +27,11 @@ case object BuildDMAygjk extends Field[Seq[Parameters => LazyRoCC]](Nil)
 //     }
 // )
 
-class CUTECrossingParams(
-                          override val MemDirectMaster: TilePortParamsLike = TileMasterPortParams(where = MBUS)
-                        ) extends RocketCrossingParams
+//class CUTECrossingParams(
+//                          override val MemDirectMaster: TilePortParamsLike = TileMasterPortParams(where = MBUS)
+//                        ) extends RocketCrossingParams
 
-class DebugInfoIO(implicit p: Parameters) extends BoomBundle with HWParameters{
+class DebugInfoIO(implicit p: Parameters) extends XSBundle with HWParameters{
   val DebugTimeStampe = UInt(64.W)
 }
 
@@ -50,8 +51,22 @@ trait HWParameters{
   val YJPPEDebugEnable    = true
   val YJPAfterOpsDebugEnable    = true
 
+  // val YJPDebugEnable      = false
+  // val YJPADCDebugEnable   = false
+  // val YJPBDCDebugEnable   = false
+  // val YJPCDCDebugEnable   = false
+  // val YJPAMLDebugEnable   = false
+  // val YJPBMLDebugEnable   = false
+  // val YJPCMLDebugEnable   = false
+
+  // val YJPTASKDebugEnable        = false
+  // val YJPVECDebugEnable         = false
+  // val YJPMACDebugEnable         = false
+  // val YJPPEDebugEnable          = false
+  // val YJPAfterOpsDebugEnable    = false
+
   val ConvolutionApplicationConfigDataWidth = 32 //卷积相关的配置信息的宽度
-  val ConvolutionDIM_Max = 65535 //卷积相关的配置信息的宽度
+  val ConvolutionDIM_Max = 65536 //卷积相关的配置信息的宽度
   val KernelSizeMax = 16 //卷积核的最大尺寸
   val StrideSizeMax = 4  //步长的最大尺寸
   //LLC的数据线宽度
@@ -69,7 +84,7 @@ trait HWParameters{
   val VectorWidth = 256   //向量流水线的宽度
 
   //最大可处理的程序的张量形状，
-  val ApplicationMaxTensorSize = 16384
+  val ApplicationMaxTensorSize = 65536
   val ApplicationMaxTensorSizeBitSize = log2Ceil(ApplicationMaxTensorSize) + 1
   //MMU的地址宽度
   val MMUAddrWidth = 64
@@ -94,6 +109,7 @@ trait HWParameters{
   val Tensor_N = 64   //这里指要存的张量的N的大小
   val Tensor_K = 2    //这里指要存的张量的K的ReduceVector的数量！不是张量的K的大小
   val Tensor_K_Element_Length = Tensor_K * ReduceWidthByte
+  val Tensor_K_PerK_Element_Length = Tensor_K_Element_Length / Tensor_K
   val ScaratchpadMaxTensorDim = Math.max(Tensor_M, Math.max(Tensor_N, Tensor_K))
   val ScaratchpadMaxTensorDimBitSize = log2Ceil(ScaratchpadMaxTensorDim) + 1
   //AScaratchpad中保存的张量形状为M*K
@@ -113,15 +129,24 @@ trait HWParameters{
 
   val AScratchpadEntryByteSize = ReduceWidthByte //适合向TE供数的带宽
   val BScratchpadEntryByteSize = ReduceWidthByte
-  val CScratchpadEntryByteSize = LLCDataWidthByte //这个比较合适的是LLC的带宽
+  val CScratchpadEntryByteSize = Matrix_M*ResultWidthByte //这个取数和存数的带宽
+
+  val AScratchpadEntryBitSize = ReduceWidthByte * 8 //适合向TE供数的带宽
+  val BScratchpadEntryBitSize = ReduceWidthByte * 8
+  val CScratchpadEntryBitSize = Matrix_M*ResultWidthByte * 8//这个取数和存数的带宽
 
   val AScratchpadNBanks = Matrix_M //注意这里与Matrix_M有强相关性，一般是Matrix_M的整数倍
   val BScratchpadNBanks = Matrix_N //这里与Matrix_N强相关
-  val CScratchpadNBanks = Matrix_M*Matrix_N*ResultWidthByte/CScratchpadEntryByteSize //4*4*4/32 = 2//这里与Tensor_K强相关，同时读写任务～以及SRAM的各种参数
+  val CScratchpadNBanks = Matrix_N //方便进行reorder
 
   val AScratchpad_Total_Bandwidth = AScratchpadNBanks * AScratchpadEntryByteSize  //ACSP的总带宽
   val BScratchpad_Total_Bandwidth = BScratchpadNBanks * BScratchpadEntryByteSize  //BCSP的总带宽
   val CScratchpad_Total_Bandwidth = CScratchpadNBanks * CScratchpadEntryByteSize  //CCSP的总带宽
+
+  val AScratchpad_Total_Bandwidth_Bit = AScratchpadNBanks * AScratchpadEntryByteSize * 8  //ACSP的总带宽
+  val BScratchpad_Total_Bandwidth_Bit = BScratchpadNBanks * BScratchpadEntryByteSize * 8  //BCSP的总带宽
+  val CScratchpad_Total_Bandwidth_Bit = CScratchpadNBanks * CScratchpadEntryByteSize * 8  //CCSP的总带宽
+
 
   val AScratchpadBankSize = AScratchpadSize / AScratchpadNBanks
   val BScratchpadBankSize = BScratchpadSize / BScratchpadNBanks
@@ -142,20 +167,44 @@ trait HWParameters{
   val ResultFIFODepth = 8
   val InputFIFODepth = 8
 
-  val CMemoryLoaderReadFromScratchpadFIFODepth = 16 //这个fifo不够深的话，会导致读请求排不满，必须和LLC的回数延迟一致
-  val CMemoryLoaderReadFromMemoryFIFODepth = 16 //这个fifo不够深的话，会导致读请求排不满，必须和LLC的回数延迟一致
+  val CMemoryLoaderReadFromScratchpadFIFODepth = 4 //用于暂存CCSP的数据到CML的FIFO
+  val CMemoryLoaderReadFromMemoryFIFODepth = 4 //用于暂存CML的数据到CSCP的FIFO
 
   val VecTaskInstBufferDepth = 32 //VecTask的指令缓冲深度
   val VecTaskInstBufferSize = 8 //VecTask的指令缓冲的数量
   val VecTaskDataBufferDepth = 4 //VecTask的指令缓冲深度掩盖从VecInterface到VPU的数据传输延迟即可
+
+  def cmd_to_tbusy(cmd: UInt) = {
+    cmd(0)
+  }
+
+  def cmd_to_tfunct(cmd: UInt) = {
+    cmd(7, 1)
+  }
+
+  def cmd_to_trd(cmd: UInt) = {
+    cmd(12, 8)
+  }
+
+  def cmd_to_topcode(cmd: UInt) = {
+    cmd(19, 13)
+  }
+
+  def resp_to_valid(resp: UInt) = {
+    resp(0)
+  }
+
+  def resp_to_rd(resp: UInt) = {
+    resp(5, 1)
+  }
 }
 
-//需要配置的信息：oc -- 控制器发来的oc编号, 
+//需要配置的信息：oc -- 控制器发来的oc编号,
 //                ic, oh, ow, kh, kw, ohb -- 外层循环次数,
 //                icb -- 矩阵乘计算中的中间长度
 //                paddingH, paddingW, strideH, strideW -- 卷积层属性
 
-class TaskCtrlInfo(implicit p: Parameters) extends BoomBundle with HWParameters with YGJKParameters{
+class TaskCtrlInfo(implicit p: Parameters) extends XSBundle with HWParameters /* with YGJKParameters */{
   val ADC = (new Bundle {
     // val TaskWorking = Valid(Bool())
     val TaskEnd = DecoupledIO(Bool())
@@ -201,17 +250,159 @@ class TaskCtrlInfo(implicit p: Parameters) extends BoomBundle with HWParameters 
   })
 }
 
-class AfterOpsInterface(implicit p: Parameters) extends BoomBundle with HWParameters with YGJKParameters{
+//CUTE能接收的宏指令形式
+class MacroInst(implicit p: Parameters) extends XSBundle with HWParameters /* with YGJKParameters */{
+  // Application_M,Application_N,Application_K代表这条宏指令要执行的MNK的长度
+  // conv_stride是卷积的stride步长
+  // kernel_size是卷积核的大小
+  // kernel_stride是每一个index的卷积核的大小，我们要求卷积核的数据排布是(kh,kw,oc,ic)
+  // stride_A、stride_B,stride_C,stride_D代表各个矩阵Reduce_DIM的长度(多少byte)
+  // transpose_result表示结果是否需要进行转置
+  // conv_oh_index,conv_ow_index代表当前处理的矩阵A的起始地址，落在卷积任务input的哪个index上
+  // conv_oh_max,conv_ow_max与index配合，可以完成padding、stride等操作的加速
+  // void * VectorOp,int VectorInst_Length代表了要融合的向量任务的具体指令和指令块长度。
+  // ABCD分别为矩阵A、矩阵B和结果矩阵C，偏置矩阵D的起始地址。要求所有矩阵都是Reduce_DIM_FIRST的
+  val ApplicationTensor_A_BaseVaddr = UInt(64.W) //矩阵A的起始地址
+  val ApplicationTensor_B_BaseVaddr = UInt(64.W) //矩阵B的起始地址
+  val ApplicationTensor_C_BaseVaddr = UInt(64.W) //矩阵C的起始地址
+  val ApplicationTensor_D_BaseVaddr = UInt(64.W) //矩阵D的起始地址
+
+  val ApplicationTensor_A_Stride = UInt(64.W) //矩阵A的stride,代表下一组Reduce_DIM需要增加多少地址偏移量，对于矩阵A[M][N]来说就是M+1需要增加多少地址偏移量，对于卷积[hw][c]来说，就是hw+1需要增加多少地址偏移量
+  val ApplicationTensor_B_Stride = UInt(64.W) //矩阵B的stride,代表下一组Reduce_DIM需要增加多少地址偏移量
+  val ApplicationTensor_C_Stride = UInt(64.W) //矩阵C的stride,代表下一组Reduce_DIM需要增加多少地址偏移量
+  val ApplicationTensor_D_Stride = UInt(64.W) //矩阵D的stride,代表下一组Reduce_DIM需要增加多少地址偏移量
+
+  val Application_M = UInt(ApplicationMaxTensorSizeBitSize.W) //矩阵乘的M的大小，对于卷积来说[ohow][oc][ic]的[ohow]的大小
+  val Application_N = UInt(ApplicationMaxTensorSizeBitSize.W) //矩阵乘的N的大小，对于卷积来说[ohow][oc][ic]的[oc]的大小
+  val Application_K = UInt(ApplicationMaxTensorSizeBitSize.W) //矩阵乘的K的大小，对于卷积来说[ohow][oc][ic]的[ic]的大小
+
+  val element_type = UInt(ElementDataType.DataTypeBitWidth.W) //矩阵元素的数据类型
+  val bias_type = UInt(CMemoryLoaderTaskType.TypeBitWidth.W) //矩阵乘的bias的数据类型
+
+  val transpose_result = Bool() //结果是否需要转置，用于attention加速
+  val conv_oh_index = UInt(log2Ceil(ConvolutionDIM_Max).W)
+  val conv_ow_index = UInt(log2Ceil(ConvolutionDIM_Max).W)
+  val conv_stride = UInt(log2Ceil(StrideSizeMax).W) //卷积的stride步长
+  val conv_oh_max = UInt(log2Ceil(ConvolutionDIM_Max).W) //卷积的oh长度，用于和stride配合完成padding等操作
+  val conv_ow_max = UInt(log2Ceil(ConvolutionDIM_Max).W) //卷积的ow长度，用于和stride配合完成padding等操作
+  val conv_oh_per_add = UInt(log2Ceil(ConvolutionDIM_Max).W)//避免在计算过程中进行除法运算，这里可以提前计算好
+  val conv_ow_per_add = UInt(log2Ceil(ConvolutionDIM_Max).W)//避免在计算过程中进行取余运算，这里可以提前计算好
+  val kernel_size = UInt(log2Ceil(KernelSizeMax).W) //卷积核的大小
+  val kernel_stride = UInt((64.W)) //kernel_stride是每一个index的卷积核的大小，我们要求卷积核的数据排布是(kh,kw,oc,ic)
+
+  // val VectorOpInstAddr = UInt(64.W)
+  // val VectorInst_Length = UInt(32.W)
+}
+
+//CUTE能接受的，Load模块能处理的微指令形式
+class LoadMicroInst(implicit p: Parameters) extends XSBundle with HWParameters /* with YGJKParameters */{
+  // Application_M,Application_N,Application_K代表这条宏指令要执行的MNK的长度
+  // conv_stride是卷积的stride步长
+  // kernel_size是卷积核的大小
+  // kernel_stride是每一个index的卷积核的大小，我们要求卷积核的数据排布是(kh,kw,oc,ic)
+  // stride_A、stride_B,stride_C,stride_D代表各个矩阵Reduce_DIM的长度(多少byte)
+  // transpose_result表示结果是否需要进行转置
+  // conv_oh_index,conv_ow_index代表当前处理的矩阵A的起始地址，落在卷积任务input的哪个index上
+  // conv_oh_max,conv_ow_max与index配合，可以完成padding、stride等操作的加速
+  // void * VectorOp,int VectorInst_Length代表了要融合的向量任务的具体指令和指令块长度。
+  // ABCD分别为矩阵A、矩阵B和结果矩阵C，偏置矩阵D的起始地址。要求所有矩阵都是Reduce_DIM_FIRST的
+  val ApplicationTensor_A = new ApplicationTensor_A_Info
+  val ApplicationTensor_B = new ApplicationTensor_B_Info
+  val ApplicationTensor_C = new ApplicationTensor_C_Info//大多时候是0，所以存在一个大寄存器里可能会亏？
+  val CLoadTaskInfo = new LoadTask_Info
+
+  val ScaratchpadTensor_M                 = (UInt(ScaratchpadMaxTensorDimBitSize.W))
+  val ScaratchpadTensor_N                 = (UInt(ScaratchpadMaxTensorDimBitSize.W))
+  val ScaratchpadTensor_K                 = (UInt(ScaratchpadMaxTensorDimBitSize.W))
+
+  //知道卷积核的位置和当前的OHOW，确认是否需要padding进行0填充
+  val Convolution_Current_OH_Index        = (UInt(log2Ceil(ConvolutionDIM_Max).W))
+  val Convolution_Current_OW_Index        = (UInt(log2Ceil(ConvolutionDIM_Max).W))
+  val Convolution_Current_KH_Index        = (UInt(log2Ceil(KernelSizeMax).W))
+  val Convolution_Current_KW_Index        = (UInt(log2Ceil(KernelSizeMax).W))
+
+  val ConherentA                           = (Bool())      //是否需要coherent
+  val ConherentB                           = (Bool())      //是否需要coherent
+  val ConherentC                           = (Bool())      //是否需要coherent
+
+  val Is_A_Work                          = (Bool())      //是否需要工作
+  val Is_B_Work                          = (Bool())      //是否需要工作
+  val Is_C_Work                          = (Bool())      //是否需要工作
+
+  val A_SCPID                            = UInt(2.W)//代表Load的结果存在哪个SCP上，这个值保存在Resoure_Info里
+  val B_SCPID                            = UInt(2.W)//代表Load的结果存在哪个SCP上，这个值保存在Resoure_Info里
+  val C_SCPID                            = UInt(2.W)//代表Load的结果存在哪个SCP上，这个值保存在Resoure_Info里
+
+  val IsTranspose                         = (Bool())      //是否需要转置
+
+
+  // val VectorOpInstAddr = UInt(64.W)
+  // val VectorInst_Length = UInt(32.W)
+}
+
+//用于描述微指令间依赖关系和资源依赖关系的信息，用于下一阶段的微指令(Compute)能否发射的信息
+class LoadMicroInst_Resource_Info(implicit p: Parameters) extends XSBundle with HWParameters /* with YGJKParameters */{
+  // Application_M,Application_N,Application_K代表这条宏指令要执行的MNK的长度
+  val A_SCPID = UInt(4.W)//代表Load的结果存在哪个SCP上
+  val B_SCPID = UInt(4.W)//代表Load的结果存在哪个SCP上
+  val C_SCPID = UInt(4.W)//代表Load的结果存在哪个SCP上
+
+}
+
+//CUTE能接受的，Compute模块能处理的微指令形式
+class ComputeMicroInst(implicit p: Parameters) extends XSBundle with HWParameters /* with YGJKParameters */{
+  // val DataType_A                          = UInt(ElementDataType.DataTypeBitWidth.W) //矩阵A的数据类型
+  // val DataType_B                          = UInt(ElementDataType.DataTypeBitWidth.W) //矩阵B的数据类型
+  // val DataType_C                          = UInt(ElementDataType.DataTypeBitWidth.W) //矩阵C的数据类型
+  // val DataType_D                          = UInt(ElementDataType.DataTypeBitWidth.W) //矩阵D的数据类型
+
+  // val Is_AfterOps_Tile = Bool()            //是否是AfterOps的Tile
+  // val Is_Transpose = Bool()                //是否是Transpose的Tile
+  // val Is_Reorder_Only_Ops = Bool()         //是否是Reorder的Tile
+  // val Is_EasyScale_Only_Ops = Bool()       //是否是EasyScale的Tile
+  // val Is_VecFIFO_Ops = Bool()              //是否是VecOps的Tile
+
+  val ScaratchpadTensor_M                 = (UInt(ScaratchpadMaxTensorDimBitSize.W))
+  val ScaratchpadTensor_N                 = (UInt(ScaratchpadMaxTensorDimBitSize.W))
+  val ScaratchpadTensor_K                 = (UInt(ScaratchpadMaxTensorDimBitSize.W))
+  val Have_Store_Micro_Inst               = (Bool())      //是否有依赖于这条计算指令的Store的指令
+}
+
+//用于描述微指令间依赖关系和资源依赖关系的信息，用于下一阶段的微指令(Store)能否发射的信息
+class ComputeMicroInst_Resource_Info(implicit p: Parameters) extends XSBundle with HWParameters /* with YGJKParameters */{
+  val A_SCPID = UInt(4.W)//代表Load的结果存在哪个SCP上
+  val B_SCPID = UInt(4.W)//代表Load的结果存在哪个SCP上
+  val C_SCPID = UInt(4.W)//代表Load的结果存在哪个SCP上
+  val Load_Micro_Inst_FIFO_Index = UInt(4.W)//代表Load的指令在队列中的位置
+}
+//CUTE能接受的，Store模块能处理的微指令形式
+class StoreMicroInst(implicit p: Parameters) extends XSBundle with HWParameters /* with YGJKParameters */{
+  val ApplicationTensor_D = new ApplicationTensor_D_Info
+  val Conherent                           = (Bool())      //是否需要coherent
+  val Is_Transpose                        = (Bool())      //是否需要转置
+  val ScaratchpadTensor_M                 = (UInt(ScaratchpadMaxTensorDimBitSize.W))
+  val ScaratchpadTensor_N                 = (UInt(ScaratchpadMaxTensorDimBitSize.W))
+  val Is_Last_Store                       = (Bool())      //是否是最后一次store
+}
+
+//用于描述微指令间依赖关系和资源依赖关系的信息，用于下一阶段的微指令(Vec或者唤醒CPU)能否发射的信息
+class StoreMicroInst_Resource_Info(implicit p: Parameters) extends XSBundle with HWParameters /* with YGJKParameters */{
+  val C_SCPID = UInt(4.W)//代表Load的结果存在哪个SCP上
+  val Compute_Micro_Inst_FIFO_Index = UInt(4.W)//代表Compute的指令在队列中的位置
+  val Marco_Inst_FIFO_Index = UInt(4.W)//代表Marco的指令在队列中的位置
+}
+
+class AfterOpsInterface(implicit p: Parameters) extends XSBundle with HWParameters /* with YGJKParameters */{
 
   //每拍可接受一个来自CDC的与SCP和TE等宽的数据，并在自己模块内完成数据的拆分、重排、缩放、转置以及其他复杂向量任务
   val CDCDataToInterface     = DecoupledIO(UInt((ResultWidth*Matrix_M*Matrix_N).W))
   val InterfaceToCDCData     = Flipped(DecoupledIO(UInt((ResultWidth*Matrix_M*Matrix_N).W)))
-  val CDCStoreAddr                        = Output(UInt(log2Ceil(CScratchpadBankNEntrys).W))
+  val CDCStoreAddr                        = Input(UInt(log2Ceil(CScratchpadBankNEntrys).W))
 
   val VecInstQueueID = UInt(1.W)
 }
 
-class VPUInterface_Input(implicit p: Parameters) extends BoomBundle with HWParameters with YGJKParameters{
+class VPUInterface_Input(implicit p: Parameters) extends XSBundle with HWParameters /* with YGJKParameters */{
   val inst_uop = Output(UInt(32.W))
   val inst_src0 = Output(UInt(VectorWidth.W))
   val inst_src1 = Output(UInt(VectorWidth.W))
@@ -221,31 +412,28 @@ class VPUInterface_Input(implicit p: Parameters) extends BoomBundle with HWParam
   val stream_id = Output(UInt(log2Ceil(Matrix_M*Matrix_N+10).W))//stream data的id
 }
 
-class VPUInterface_Output(implicit p: Parameters) extends BoomBundle with HWParameters with YGJKParameters{
+class VPUInterface_Output(implicit p: Parameters) extends XSBundle with HWParameters /* with YGJKParameters */{
   val stream_id = Output(UInt(log2Ceil(Matrix_M*Matrix_N+10).W))//stream data的id
   val stream_data = Output(UInt(VectorWidth.W))//stream data还能存一些额外的信息，这些信息也会返回，后续可以用于配置VPU的部分隐式寄存器，或者留存在VPU的的隐式寄存器中，这些寄存器是uop可见的，如下一次的scale，下一次的bias等。
 }
 
-class VPUInterfaceIO(implicit p: Parameters) extends BoomBundle with HWParameters with YGJKParameters{
+class VPUInterfaceIO(implicit p: Parameters) extends XSBundle with HWParameters /* with YGJKParameters */{
   val VPU_Input = (DecoupledIO(new VPUInterface_Input))
   val VPU_Output = Flipped(DecoupledIO(new VPUInterface_Output))
 }
 
 
-class VectorInterfaceIO(implicit p: Parameters) extends BoomBundle with HWParameters with YGJKParameters{
+class VectorInterfaceIO(implicit p: Parameters) extends XSBundle with HWParameters /* with YGJKParameters */{
 
   //每拍可接受一个来自AfterOpsInterface的与VectorWidth等宽的数据
   val VecTask = DecoupledIO(UInt(log2Ceil(VecTaskInstBufferSize).W))
-  // val VecInterfaceReady = Output(Bool())
   val VectorDataIn     = DecoupledIO(UInt((VectorWidth).W))
-  val VectorTOVPU     = (new VPUInterfaceIO)
   val VectorDataOut     = Flipped(DecoupledIO(UInt((VectorWidth).W)))
 }
 
 
 case object StreamStateType extends Field[UInt]{
   val StreamStateTypeBitWidth = 4
-
   val NoReorder = 0.U(StreamStateTypeBitWidth.W)
   val Reorder_DIM_N_First = 1.U(StreamStateTypeBitWidth.W)
   val Reorder_DIM_M_First = 2.U(StreamStateTypeBitWidth.W)
@@ -259,7 +447,7 @@ case object CaculateStreamStateType extends Field[UInt]{
   val N_M = 1.U(CaculateStreamStateTypeBitWidth.W)
 }
 
-class CUTE_uop(implicit p: Parameters) extends BoomBundle with HWParameters with YGJKParameters{
+class CUTE_uop(implicit p: Parameters) extends XSBundle with HWParameters /* with YGJKParameters */{
   val Stream_state = UInt((StreamStateType.StreamStateTypeBitWidth).W)
   val Stream_uop = UInt(32.W)
   val Element_uop = UInt(32.W)
@@ -268,7 +456,7 @@ class CUTE_uop(implicit p: Parameters) extends BoomBundle with HWParameters with
 
 }
 
-class AfterOpsMicroTaskConfigIO(implicit p: Parameters) extends BoomBundle with HWParameters with YGJKParameters{
+class AfterOpsMicroTaskConfigIO(implicit p: Parameters) extends XSBundle with HWParameters /* with YGJKParameters */{
   val ApplicationTensor_C = (new Bundle{
     val dataType                        = (UInt(ElementDataType.DataTypeBitWidth.W))
   })
@@ -292,10 +480,10 @@ class AfterOpsMicroTaskConfigIO(implicit p: Parameters) extends BoomBundle with 
   val MicroTaskEndValid                   = Flipped(Bool())//已完成当前任务
   val MicroTaskEndReady                   = (Bool())       //已知晓当前任务完成
 
-  val CUTEuop                         = new CUTE_uop
+  val CUTEuop                         = (new CUTE_uop)
 }
 
-class ADCMicroTaskConfigIO(implicit p: Parameters) extends BoomBundle with HWParameters with YGJKParameters{
+class ADCMicroTaskConfigIO(implicit p: Parameters) extends XSBundle with HWParameters /* with YGJKParameters */{
   val ApplicationTensor_A = (new Bundle{
     // val ApplicationTensor_A_BaseVaddr   = (UInt(MMUAddrWidth.W))
     // val BlockTensor_A_BaseVaddr         = (UInt(MMUAddrWidth.W))
@@ -314,7 +502,7 @@ class ADCMicroTaskConfigIO(implicit p: Parameters) extends BoomBundle with HWPar
   val MicroTaskEndReady                   = (Bool())       //已知晓当前任务完成
 }
 
-class BDCMicroTaskConfigIO(implicit p: Parameters) extends BoomBundle with HWParameters with YGJKParameters{
+class BDCMicroTaskConfigIO(implicit p: Parameters) extends XSBundle with HWParameters /* with YGJKParameters */{
   val ApplicationTensor_B = (new Bundle{
     // val ApplicationTensor_B_BaseVaddr   = (UInt(MMUAddrWidth.W))
     // val BlockTensor_B_BaseVaddr         = (UInt(MMUAddrWidth.W))
@@ -333,7 +521,7 @@ class BDCMicroTaskConfigIO(implicit p: Parameters) extends BoomBundle with HWPar
   val MicroTaskEndReady                   = (Bool())       //已知晓当前任务完成
 }
 
-class CDCMicroTaskConfigIO(implicit p: Parameters) extends BoomBundle with HWParameters with YGJKParameters{
+class CDCMicroTaskConfigIO(implicit p: Parameters) extends XSBundle with HWParameters /* with YGJKParameters */{
   val ApplicationTensor_C = (new Bundle{
     // val ApplicationTensor_C_BaseVaddr   = (UInt(MMUAddrWidth.W))
     // val BlockTensor_C_BaseVaddr         = (UInt(MMUAddrWidth.W))
@@ -367,22 +555,24 @@ class CDCMicroTaskConfigIO(implicit p: Parameters) extends BoomBundle with HWPar
   val MicroTask_TEComputeEndReady         = (Bool())       //已知晓当前的TE的计算任务完成
 }
 
-class AMLMicroTaskConfigIO(implicit p: Parameters) extends BoomBundle with HWParameters with YGJKParameters{
-  val ApplicationTensor_A = (new Bundle{
-    val ApplicationTensor_A_BaseVaddr   = (UInt(MMUAddrWidth.W))
-    val BlockTensor_A_BaseVaddr         = (UInt(MMUAddrWidth.W))
-    val ApplicationTensor_A_Stride_M    = (UInt(MMUAddrWidth.W))//下一个M需要增加多少的地址偏移量
-    val Convolution_OH_DIM_Length       = (UInt(log2Ceil(ConvolutionDIM_Max).W))
-    val Convolution_OW_DIM_Length       = (UInt(log2Ceil(ConvolutionDIM_Max).W))
-    val Convolution_Stride_H            = (UInt(log2Ceil(StrideSizeMax).W))
-    val Convolution_Stride_W            = (UInt(log2Ceil(StrideSizeMax).W))
-    val Convolution_KH_DIM_Length       = (UInt(log2Ceil(KernelSizeMax).W))
-    val Convolution_KW_DIM_Length       = (UInt(log2Ceil(KernelSizeMax).W))
-    val dataType                        = (UInt(ElementDataType.DataTypeBitWidth.W))
-  })
+class ApplicationTensor_A_Info(implicit p: Parameters) extends XSBundle with HWParameters /* with YGJKParameters */{
+  val ApplicationTensor_A_BaseVaddr   = (UInt(MMUAddrWidth.W))
+  // val BlockTensor_A_BaseVaddr         = (UInt(MMUAddrWidth.W))//可能没有了
+  val ApplicationTensor_A_Stride_M    = (UInt(MMUAddrWidth.W))//下一个M需要增加多少的地址偏移量
+  val Convolution_OH_DIM_Length       = (UInt(log2Ceil(ConvolutionDIM_Max).W))
+  val Convolution_OW_DIM_Length       = (UInt(log2Ceil(ConvolutionDIM_Max).W))
+  val Convolution_Stride_H            = (UInt(log2Ceil(StrideSizeMax).W))
+  val Convolution_Stride_W            = (UInt(log2Ceil(StrideSizeMax).W))
+  val Convolution_KH_DIM_Length       = (UInt(log2Ceil(KernelSizeMax).W))
+  val Convolution_KW_DIM_Length       = (UInt(log2Ceil(KernelSizeMax).W))
+  val dataType                        = (UInt(ElementDataType.DataTypeBitWidth.W))
+}
+
+class AMLMicroTaskConfigIO(implicit p: Parameters) extends XSBundle with HWParameters /* with YGJKParameters */{
+
+  val ApplicationTensor_A = new ApplicationTensor_A_Info
 
   val ScaratchpadTensor_M                 = (UInt(ScaratchpadMaxTensorDimBitSize.W))
-  val ScaratchpadTensor_N                 = (UInt(ScaratchpadMaxTensorDimBitSize.W))
   val ScaratchpadTensor_K                 = (UInt(ScaratchpadMaxTensorDimBitSize.W))
 
   //知道卷积核的位置和当前的OHOW，确认是否需要padding进行0填充
@@ -399,24 +589,26 @@ class AMLMicroTaskConfigIO(implicit p: Parameters) extends BoomBundle with HWPar
   val MicroTaskEndReady                   = (Bool())       //已知晓当前任务完成
 }
 
-class BMLMicroTaskConfigIO(implicit p: Parameters) extends BoomBundle with HWParameters with YGJKParameters{
-  val ApplicationTensor_B = (new Bundle{
-    val ApplicationTensor_B_BaseVaddr   = (UInt(MMUAddrWidth.W))
-    val BlockTensor_B_BaseVaddr         = (UInt(MMUAddrWidth.W))
-    val ApplicationTensor_B_Stride_N    = (UInt(MMUAddrWidth.W))//下一个N需要增加多少的地址偏移量
-    val Convolution_OC_DIM_Length       = (UInt(ConvolutionApplicationConfigDataWidth.W))
-    val Convolution_KH_DIM_Length       = (UInt(ConvolutionApplicationConfigDataWidth.W))
-    val Convolution_KW_DIM_Length       = (UInt(ConvolutionApplicationConfigDataWidth.W))
-    val dataType                        = (UInt(ElementDataType.DataTypeBitWidth.W))
-  })
+class ApplicationTensor_B_Info(implicit p: Parameters) extends XSBundle with HWParameters /* with YGJKParameters */{
+  val ApplicationTensor_B_BaseVaddr   = (UInt(MMUAddrWidth.W))
+  val BlockTensor_B_BaseVaddr         = (UInt(MMUAddrWidth.W))
+  val ApplicationTensor_B_Stride_N    = (UInt(MMUAddrWidth.W))//下一个N需要增加多少的地址偏移量
+  // val Convolution_OC_DIM_Length       = (UInt(ConvolutionApplicationConfigDataWidth.W))
+  val Convolution_KH_DIM_Length       = (UInt(ConvolutionApplicationConfigDataWidth.W))
+  val Convolution_KW_DIM_Length       = (UInt(ConvolutionApplicationConfigDataWidth.W))
+  val dataType                        = (UInt(ElementDataType.DataTypeBitWidth.W))
+}
 
-  val ScaratchpadTensor_M                 = (UInt(ScaratchpadMaxTensorDimBitSize.W))
+class BMLMicroTaskConfigIO(implicit p: Parameters) extends XSBundle with HWParameters /* with YGJKParameters */{
+
+  val ApplicationTensor_B = (new ApplicationTensor_B_Info)
+
   val ScaratchpadTensor_N                 = (UInt(ScaratchpadMaxTensorDimBitSize.W))
   val ScaratchpadTensor_K                 = (UInt(ScaratchpadMaxTensorDimBitSize.W))
 
   //知道卷积核的位置，确认kernel的具体BlockTensor_B_BaseVaddr，那这个不需要传进来，TaskCtrl算完送进来就行了。
-  val Convolution_Current_KH_Index        = (UInt(ConvolutionApplicationConfigDataWidth.W))
-  val Convolution_Current_KW_Index        = (UInt(ConvolutionApplicationConfigDataWidth.W))
+  // val Convolution_Current_KH_Index        = (UInt(ConvolutionApplicationConfigDataWidth.W))
+  // val Convolution_Current_KW_Index        = (UInt(ConvolutionApplicationConfigDataWidth.W))
 
   val Conherent                           = (Bool())      //是否需要coherent
 
@@ -426,48 +618,71 @@ class BMLMicroTaskConfigIO(implicit p: Parameters) extends BoomBundle with HWPar
   val MicroTaskEndReady                   = (Bool())       //已知晓当前任务完成
 }
 
+class ApplicationTensor_C_Info(implicit p: Parameters) extends XSBundle with HWParameters /* with YGJKParameters */{
+  val ApplicationTensor_C_BaseVaddr   = (UInt(MMUAddrWidth.W))
+  val BlockTensor_C_BaseVaddr         = (UInt(MMUAddrWidth.W))
+  val ApplicationTensor_C_Stride_M    = (UInt(MMUAddrWidth.W))//下一个M需要增加多少的地址偏移量
+  val dataType                        = (UInt(ElementDataType.DataTypeBitWidth.W))
+}
 
-class CMLMicroTaskConfigIO(implicit p: Parameters) extends BoomBundle with HWParameters with YGJKParameters{
+class ApplicationTensor_D_Info(implicit p: Parameters) extends XSBundle with HWParameters /* with YGJKParameters */{
+  val ApplicationTensor_D_BaseVaddr   = (UInt(MMUAddrWidth.W))
+  val BlockTensor_D_BaseVaddr         = (UInt(MMUAddrWidth.W))
+  val ApplicationTensor_D_Stride_M    = (UInt(MMUAddrWidth.W))//下一个M需要增加多少的地址偏移量
+  val dataType                        = (UInt(ElementDataType.DataTypeBitWidth.W))
+}
+
+class LoadTask_Info(implicit p: Parameters) extends XSBundle with HWParameters /* with YGJKParameters */{
+  val Is_ZeroLoad = (Bool())
+  val Is_RepeatRowLoad = (Bool())
+  val Is_FullLoad = (Bool())
+}
+class CMLMicroTaskConfigIO(implicit p: Parameters) extends XSBundle with HWParameters /* with YGJKParameters */{
   //就是一个TensorC，是累加寄存器视角的不动的部分
-  val ApplicationTensor_C = (new Bundle{
-    val ApplicationTensor_C_BaseVaddr   = (UInt(MMUAddrWidth.W))
-    val BlockTensor_C_BaseVaddr         = (UInt(MMUAddrWidth.W))
-    val ApplicationTensor_C_Stride_M    = (UInt(MMUAddrWidth.W))//下一个M需要增加多少的地址偏移量
-    val dataType                        = (UInt(ElementDataType.DataTypeBitWidth.W))
-  })
 
-  val ApplicationTensor_D = (new Bundle{
-    val ApplicationTensor_D_BaseVaddr   = (UInt(MMUAddrWidth.W))
-    val BlockTensor_D_BaseVaddr         = (UInt(MMUAddrWidth.W))
-    val ApplicationTensor_D_Stride_M    = (UInt(MMUAddrWidth.W))//下一个M需要增加多少的地址偏移量
-    val dataType                        = (UInt(ElementDataType.DataTypeBitWidth.W))
-  })
+  val ApplicationTensor_C = (new ApplicationTensor_C_Info)
 
-  val LoadTaskInfo = (new Bundle{
-    val Is_ZeroLoad = (Bool())
-    val Is_RepeatRowLoad = (Bool())
-    val Is_FullLoad = (Bool())
-  })
+  val ApplicationTensor_D = (new ApplicationTensor_D_Info)
+
+  val LoadTaskInfo = (new LoadTask_Info)
 
   val StoreTaskInfo = (new Bundle{
     val Is_ZeroStore = (Bool())//暂时没有传递的参数
   })
 
+  val Conherent                           = (Bool())      //是否需要coherent
   val Is_Transpose                        = (Bool())      //是否需要转置
   val ScaratchpadTensor_M                 = (UInt(ScaratchpadMaxTensorDimBitSize.W))
   val ScaratchpadTensor_N                 = (UInt(ScaratchpadMaxTensorDimBitSize.W))
-  val ScaratchpadTensor_K                 = (UInt(ScaratchpadMaxTensorDimBitSize.W))
 
   val IsLoadMicroTask                     = (Bool())      //是否是Load任务
   val IsStoreMicroTask                    = (Bool())      //是否是Store任务
 
   val MicroTaskReady                      = Flipped(Bool())//可配置下一个任务
   val MicroTaskValid                      = (Bool())       //当前任务的配置信息有效
-  val MicroTaskEndValid                        = Flipped(Bool())//已完成当前任务
+  val MicroTaskEndValid                   = Flipped(Bool())//已完成当前任务
   val MicroTaskEndReady                   = (Bool())       //已知晓当前任务完成
 }
 
-class ConfigInfoIO(implicit p: Parameters) extends BoomBundle with HWParameters with YGJKParameters{
+class MTEMicroTaskConfigIO(implicit p: Parameters) extends XSBundle with HWParameters /* with YGJKParameters */{
+  val dataType                            = Output(UInt(ElementDataType.DataTypeBitWidth.W))
+  val valid = Output(Bool())
+  val ready = Input(Bool())
+}
+
+class SCPControlInfo(implicit p: Parameters) extends XSBundle with HWParameters /* with YGJKParameters */{
+  val ADC_SCP_ID = UInt(1.W)
+  val BDC_SCP_ID = UInt(1.W)
+  val CDC_SCP_ID = UInt(1.W)
+  val AML_SCP_ID = UInt(1.W)
+  val BML_SCP_ID = UInt(1.W)
+  val CML_SCP_ID = UInt(1.W)
+}
+
+
+
+
+class ConfigInfoIO(implicit p: Parameters) extends XSBundle with HWParameters /* with YGJKParameters */{
 
   val MMUConfig = Flipped(new MMUConfigIO)
   val ApplicationTensor_A = (new Bundle{
@@ -528,7 +743,7 @@ class ADataControlScaratchpadIO extends Bundle with HWParameters{
   //bankaddr是对nbanks个bank，各自bank的行选信号,是一个vec，有nbanks个元素，每个元素是一个UInt，UInt的宽度是log2Ceil(AScratchpadBankNLines)，是输入的需要握手的数据
   val BankAddr = Flipped(DecoupledIO(Vec(AScratchpadNBanks, (UInt(log2Ceil(AScratchpadBankNEntrys).W)))))
   //bankdata是对nbanks个bank，各自bank的行数据，是一个vec，有nbanks个元素，每个元素是一个UInt，UInt的宽度是ReduceWidthByte*8
-  val Data = Valid(Vec(AScratchpadNBanks, UInt(ReduceWidth.W)))
+  val Data = Valid(Vec(AScratchpadNBanks, UInt(AScratchpadEntryBitSize.W)))
   //chosen是选择该ScarchPad的信号，是一个bool，我们做doublebuffer，选择其一供数，选择其一加载数据
   // val Chosen = Input(Bool())
 }
@@ -538,7 +753,7 @@ class AMemoryLoaderScaratchpadIO extends Bundle with HWParameters{
   val BankId = Flipped(Valid(UInt(log2Ceil(AScratchpadNBanks).W)))
   val BankAddr = Flipped(Valid(UInt(log2Ceil(AScratchpadBankNEntrys).W)))
   //bankdata是对nbanks个bank，各自bank的行数据，是一个vec，有nbanks个元素，每个元素是一个UInt，UInt的宽度是ReduceWidthByte*8
-  val Data = Flipped(Valid(UInt(ReduceWidth.W)))
+  val Data = Flipped(Valid(UInt(AScratchpadEntryBitSize.W)))
   //chosen是选择该ScarchPad的信号，是一个bool，我们做doublebuffer，选择其一供数，选择其一加载数据
   // val Chosen = Input(Bool())
 }
@@ -547,7 +762,7 @@ class BDataControlScaratchpadIO extends Bundle with HWParameters{
   //bankaddr是对nbanks个bank，各自bank的行选信号,是一个vec，有nbanks个元素，每个元素是一个UInt，UInt的宽度是log2Ceil(AScratchpadBankNLines)，是输入的需要握手的数据
   val BankAddr = Flipped(DecoupledIO(Vec(BScratchpadNBanks, (UInt(log2Ceil(BScratchpadBankNEntrys).W)))))
   //bankdata是对nbanks个bank，各自bank的行数据，是一个vec，有nbanks个元素，每个元素是一个UInt，UInt的宽度是ReduceWidthByte*8
-  val Data = Valid(Vec(BScratchpadNBanks, UInt(ReduceWidth.W)))
+  val Data = Valid(Vec(BScratchpadNBanks, UInt(BScratchpadEntryBitSize.W)))
   //chosen是选择该ScarchPad的信号，是一个bool，我们做doublebuffer，选择其一供数，选择其一加载数据
   // val Chosen = Input(Bool())
 }
@@ -557,7 +772,7 @@ class BMemoryLoaderScaratchpadIO extends Bundle with HWParameters{
   val BankId = Flipped(Valid(UInt(log2Ceil(BScratchpadNBanks).W)))
   val BankAddr = Flipped(Valid(UInt(log2Ceil(BScratchpadBankNEntrys).W)))
   //bankdata是对nbanks个bank，各自bank的行数据，是一个vec，有nbanks个元素，每个元素是一个UInt，UInt的宽度是ReduceWidthByte*8
-  val Data = Flipped(Valid(UInt(ReduceWidth.W)))
+  val Data = Flipped(Valid(UInt(BScratchpadEntryBitSize.W)))
   //chosen是选择该ScarchPad的信号，是一个bool，我们做doublebuffer，选择其一供数，选择其一加载数据
   // val Chosen = Input(Bool())
 }
@@ -565,11 +780,11 @@ class BMemoryLoaderScaratchpadIO extends Bundle with HWParameters{
 
 class CDataControlScaratchpadIO extends Bundle with HWParameters{
   //bankaddr是对nbanks个bank，各自bank的行选信号,是一个vec，有nbanks个元素，每个元素是一个UInt，UInt的宽度是log2Ceil(AScratchpadBankNLines)，是输入的需要握手的数据
-  val ReadBankAddr = Flipped(Valid(Vec(CScratchpadNBanks, (UInt(log2Ceil(CScratchpadBankNEntrys).W)))))
-  val WriteBankAddr = Flipped(Valid(Vec(CScratchpadNBanks, (UInt(log2Ceil(CScratchpadBankNEntrys).W)))))
+  val ReadBankAddr = Flipped((Vec(CScratchpadNBanks, Valid(UInt(log2Ceil(CScratchpadBankNEntrys).W)))))
+  val WriteBankAddr = Flipped((Vec(CScratchpadNBanks, Valid(UInt(log2Ceil(CScratchpadBankNEntrys).W)))))
   //bankdata是对nbanks个bank，各自bank的行数据，是一个vec，有nbanks个元素，每个元素是一个UInt
-  val ReadResponseData = Valid(Vec(CScratchpadNBanks, UInt(LLCDataWidth.W)))
-  val WriteRequestData = Flipped(Valid(Vec(CScratchpadNBanks, UInt(LLCDataWidth.W))))
+  val ReadResponseData = (Vec(CScratchpadNBanks, Valid(UInt(CScratchpadEntryBitSize.W))))
+  val WriteRequestData = Flipped((Vec(CScratchpadNBanks, Valid(UInt(CScratchpadEntryBitSize.W)))))
   //chosen是选择该ScarchPad的信号，是一个bool，我们做doublebuffer，选择其一供数，选择其一加载数据
   val ReadWriteRequest = Input(UInt((ScaratchpadTaskType.TaskTypeBitWidth).W))
   val ReadWriteResponse = Output(UInt((ScaratchpadTaskType.TaskTypeBitWidth).W))
@@ -578,15 +793,12 @@ class CDataControlScaratchpadIO extends Bundle with HWParameters{
 
 class CMemoryLoaderScaratchpadIO extends Bundle with HWParameters{
   val ReadRequestToScarchPad = (new Bundle{
-    val FullBankLoad = Input(Bool())
-    val BankId = Flipped(Valid(UInt(log2Ceil(CScratchpadNBanks).W)))
-    val BankAddr = Flipped(Valid(UInt(log2Ceil(CScratchpadBankNEntrys).W)))
-    val ReadResponseData = (Valid(Vec(CScratchpadNBanks, UInt(LLCDataWidth.W))))
+    val BankAddr = Flipped(Vec(CScratchpadNBanks, Valid(UInt(log2Ceil(CScratchpadBankNEntrys).W))))
+    val ReadResponseData = ((Vec(CScratchpadNBanks, Valid(UInt(CScratchpadEntryBitSize.W)))))
   })
   val WriteRequestToScarchPad = (new Bundle{
-    // val BankId = Flipped(Valid(UInt(log2Ceil(CScratchpadNBanks).W)))
-    val BankAddr = Flipped(Valid(UInt(log2Ceil(CScratchpadBankNEntrys).W)))
-    val Data = Flipped(Valid(Vec(CScratchpadNBanks, UInt(LLCDataWidth.W))))
+    val BankAddr = Flipped(Vec(CScratchpadNBanks, (Valid(UInt(log2Ceil(CScratchpadBankNEntrys).W)))))
+    val Data = Flipped(Vec(CScratchpadNBanks, (Valid(UInt(CScratchpadEntryBitSize.W)))))
   })
 
   val ReadWriteRequest = Input(UInt((ScaratchpadTaskType.TaskTypeBitWidth).W))
@@ -610,7 +822,7 @@ class LocalMMUIO extends Bundle with HWParameters{
   val nonConherentRequsetSourceID = Valid(UInt(MemorysourceMaxNumBitSize.W))
 
   //Memoryloader一定能保证收回！
-  val Response = Valid(new Bundle{
+  val Response = DecoupledIO(new Bundle{
     val ReseponseData = UInt(MMUDataWidth.W)
     val ReseponseConherent = Bool()
     val ReseponseSourceID = UInt(SoureceMaxNumBitSize.W)
@@ -632,7 +844,7 @@ class MMU2TLIO extends Bundle with HWParameters{
   val nonConherentRequsetSourceID = Valid(UInt(MemorysourceMaxNumBitSize.W))
 
   //Memoryloader一定能保证收回！
-  val Response = Valid(new Bundle{
+  val Response = DecoupledIO(new Bundle{
     val ReseponseData = UInt(MMUDataWidth.W)
     val ReseponseConherent = Bool()
     val ReseponseSourceID = UInt(SoureceMaxNumBitSize.W)
@@ -643,10 +855,18 @@ class MMU2TLIO extends Bundle with HWParameters{
 //数据类型的样板类
 case object  ElementDataType extends Field[UInt]{
   val DataTypeBitWidth = 3
-  val DataTypeUndef  = 0.U(DataTypeBitWidth.W)
+  val DataTypeUndef   = 0.U(DataTypeBitWidth.W)
   val DataTypeWidth32 = 4.U(DataTypeBitWidth.W)
   val DataTypeWidth16 = 2.U(DataTypeBitWidth.W)
   val DataTypeWidth8  = 1.U(DataTypeBitWidth.W)
+
+  val DataTypeUInt8   = 0.U(DataTypeBitWidth.W)
+  val DataTypeSInt8   = 1.U(DataTypeBitWidth.W)
+  val DataTypeUInt16  = 2.U(DataTypeBitWidth.W)
+  val DataTypeSInt16  = 3.U(DataTypeBitWidth.W)
+  val DataTypeUInt32  = 4.U(DataTypeBitWidth.W)
+  val DataTypeSInt32  = 5.U(DataTypeBitWidth.W)
+
 }
 
 //工作任务的样板类
@@ -658,11 +878,11 @@ case object  CUTETaskType extends Field[UInt]{
 }
 
 case object  CMemoryLoaderTaskType extends Field[UInt]{
-  val TypeBitWidth = 8
+  val TypeBitWidth = 4
   val TaskTypeUndef = 0.U(TypeBitWidth.W)
-  val TaskTypeTensorStore = 1.U(TypeBitWidth.W)
-  val TaskTypeTensorLoad = 2.U(TypeBitWidth.W)
-  val TaskTypeTensorZeroLoad = 3.U(TypeBitWidth.W) //直接将数据填充为0，实际上是什么也没做，默认可以写入SRAM，无视以前SRAM里面的数据即可
+  val TaskTypeTensorZeroLoad = 1.U(TypeBitWidth.W) //直接将数据填充为0，实际上是什么也没做，默认可以写入SRAM，无视以前SRAM里面的数据即可
+  val TaskTypeTensorRepeatRowLoad = 2.U(TypeBitWidth.W) //重复加载一行数据，实际上是什么也没做，默认可以写入SRAM，无视以前SRAM里面的数据即可
+  val TaskTypeTensorLoad = 3.U(TypeBitWidth.W) //完整的加载所有数据
 }
 case object  MemoryOrderType extends Field[UInt]{
   val MemoryOrderTypeBitWidth = 8

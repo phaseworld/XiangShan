@@ -1,4 +1,5 @@
-package xiangshan.backend.cute
+
+package xiangshan.cute
 
 import chisel3._
 import chisel3.util._
@@ -107,6 +108,7 @@ class BDataController(implicit p: Parameters) extends Module with HWParameters{
 
   //统计读数请求次数
   val BVectorCount = RegInit(0.U(32.W))//当前计算任务实际上的迭代次数
+  val BRequestVectorCount = RegInit(0.U(32.W))//当前计算任务实际上的迭代次数
 
   val ScarchPadRequestBankAddr = io.FromScarchPadIO.BankAddr  //往ScarchPad请求数据的地址
   ScarchPadRequestBankAddr.bits := 0.U.asTypeOf(ScarchPadRequestBankAddr.bits)        //全部初始化为0
@@ -124,6 +126,7 @@ class BDataController(implicit p: Parameters) extends Module with HWParameters{
       N_Iterator := 0.U
       K_Iterator := 0.U
       BVectorCount := 0.U
+      BRequestVectorCount := 0.U
       ScarchPadDataHoldReg := 0.U
       ScarchPadDataHoldValid := false.B
       //阶段1，初始化完成，开始供数任务
@@ -131,11 +134,11 @@ class BDataController(implicit p: Parameters) extends Module with HWParameters{
     }.elsewhen(calculate_state === s_cal_working){
       //阶段2，计算开始，计算对Scarchpad的取数地址
 
-      if (YJPBDCDebugEnable)
-      {
-        printf("[BDataController<%d>]BDataController: M_Iterator is %d, N_Iterator is %d, K_Iterator is %d\n",io.DebugInfo.DebugTimeStampe, M_Iterator, N_Iterator, K_Iterator)
-        printf("[BDataController<%d>]BDataController: M_IteratorMax is %d, N_IteratorMax is %d, K_IteratorMax is %d\n",io.DebugInfo.DebugTimeStampe, M_IteratorMax, N_IteratorMax, K_IteratorMax)
-      }
+      // if (YJPBDCDebugEnable)
+      // {
+      //     printf("[BDataController<%d>]BDataController: M_Iterator is %d, N_Iterator is %d, K_Iterator is %d\n",io.DebugInfo.DebugTimeStampe, M_Iterator, N_Iterator, K_Iterator)
+      //     printf("[BDataController<%d>]BDataController: M_IteratorMax is %d, N_IteratorMax is %d, K_IteratorMax is %d\n",io.DebugInfo.DebugTimeStampe, M_IteratorMax, N_IteratorMax, K_IteratorMax)
+      // }
       //MTE循环的最外层是M，然后是N，最后是K,所以这里在同步信号的ComputeGo的协同下，执行Max_Caculate_Iter次取数
       val next_addr = Wire(UInt(AScratchpadBankNEntrys.W))
       next_addr := M_Iterator * K_IteratorMax + K_Iterator
@@ -144,10 +147,11 @@ class BDataController(implicit p: Parameters) extends Module with HWParameters{
       //只要ComputeGo有效，就表示一定会有一个数据被消耗，我们可以继续取数
       //但我们有一个周期的读数延迟，所以如果当前拍不能再继续计算，则我们取得数会在NACK，我们将NACK的数据保存在holdreg中
       //只要等Computgo有效，就可以继续取数，我们会将NACK的数据输出给TE
-      when(io.ComputeGo && BVectorCount < Max_Caculate_Iter){
+      when(io.ComputeGo && BRequestVectorCount < Max_Caculate_Iter){
         //计算取数地址
         ScarchPadRequestBankAddr.valid := true.B
         K_Iterator := K_Iterator + 1.U
+        BRequestVectorCount := BRequestVectorCount + 1.U
         when(K_Iterator === K_IteratorMax - 1.U){
           K_Iterator := 0.U
           N_Iterator := N_Iterator + 1.U
@@ -181,7 +185,7 @@ class BDataController(implicit p: Parameters) extends Module with HWParameters{
         //输出AVectorCount，VectorA的信息
         if (YJPBDCDebugEnable)
         {
-          printf("[BDataController<%d>]BDataController: AVectorCount is %d\n", BVectorCount)
+          printf("[BDataController<%d>]BDataController: BVectorCount is %d,BVector is %d\n",io.DebugInfo.DebugTimeStampe, BVectorCount,io.VectorB.bits)
         }
       }.elsewhen(io.VectorB.valid && !io.VectorB.ready && !io.ComputeGo && ScarchPadData.valid){
         //如果数据没有被消耗，那么我们就要保存ScarchPad的数据
